@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 6% 10%;
+    --foreground: 240 5% 96%;
+
+    --card: 240 4% 16%;
+    --card-foreground: 240 5% 96%;
+
+    --popover: 240 4% 16%;
+    --popover-foreground: 240 5% 96%;
+
+    --primary: 330 81% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 4% 20%;
+    --secondary-foreground: 240 5% 96%;
+
+    --muted: 240 4% 20%;
+    --muted-foreground: 240 5% 58%;
+
+    --accent: 330 81% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 240 4% 22%;
+    --input: 240 4% 20%;
+    --ring: 330 81% 60%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 240 6% 7%;
+    --sidebar-foreground: 240 5% 65%;
+    --sidebar-primary: 330 81% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 4% 14%;
+    --sidebar-accent-foreground: 240 5% 96%;
+    --sidebar-border: 240 4% 16%;
+    --sidebar-ring: 330 81% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card border border-border rounded-xl backdrop-blur-sm;
+  }
+
+  .badge-success {
+    @apply bg-success/15 text-[hsl(var(--success))] border border-success/20;
+  }
+  .badge-warning {
+    @apply bg-warning/15 text-[hsl(var(--warning))] border border-warning/20;
+  }
+  .badge-danger {
+    @apply bg-destructive/15 text-destructive border border-destructive/20;
+  }
+  .badge-info {
+    @apply bg-info/15 text-[hsl(var(--info))] border border-info/20;
+  }
+
+  .transition-smooth {
+    @apply transition-all duration-200 ease-in-out;
+  }
+}
