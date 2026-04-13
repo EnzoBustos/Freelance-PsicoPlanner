@@ -48,6 +48,8 @@ export interface Session {
   onlineLink?: string;
   observations?: string;
   evolutionNote?: string;
+  recurrencePattern?: 'weekly' | 'biweekly' | 'monthly';
+  recurrenceIndex?: number;
 }
 
 export interface Transaction {

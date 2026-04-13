@@ -52,10 +52,11 @@ export function AppSidebar() {
       try {
         const data = await fetchPsychologistProfile();
         if (data) {
-          const name = data.name ?? 'Profissional';
+          const profileData = data as any;
+          const name = profileData.name ?? profileData.full_name ?? 'Profissional';
           setProfile({
             name: name,
-            crp: data.crp ?? '-',
+            crp: profileData.crp ?? '-',
           });
           setAvatarInitials(getInitials(name));
           setAvatarColor(getAvatarColor(name));

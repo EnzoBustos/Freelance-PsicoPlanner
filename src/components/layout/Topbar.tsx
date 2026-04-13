@@ -1,6 +1,14 @@
 import { Bell } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchClinicalAlerts, fetchPsychologistProfile } from '@/services/supabaseQueries';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { fetchClinicalAlerts, fetchPsychologistProfile, fetchSessions, fetchTransactions } from '@/services/supabaseQueries';
+
+interface TopbarNotification {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: number;
+}
 
 // Helper function to get initials from name
 const getInitials = (name: string): string => {
@@ -30,6 +38,7 @@ const getAvatarColor = (name: string): string => {
 
 export function Topbar({ title }: { title: string }) {
   const [alertsCount, setAlertsCount] = useState(0);
+  const [notifications, setNotifications] = useState<TopbarNotification[]>([]);
   const [profileName, setProfileName] = useState('Carregando...');
   const [profileInitials, setProfileInitials] = useState('PP');
   const [avatarColor, setAvatarColor] = useState('bg-primary/20 text-primary');
@@ -37,27 +46,116 @@ export function Topbar({ title }: { title: string }) {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [alerts, profile] = await Promise.all([
+        const [alerts, profile, sessions, transactions] = await Promise.all([
           fetchClinicalAlerts().catch(() => []),
           fetchPsychologistProfile().catch(() => null),
+          fetchSessions().catch(() => []),
+          fetchTransactions().catch(() => []),
         ]);
-        setAlertsCount(alerts.length);
-        if (profile?.name) {
-          setProfileName(profile.name);
-          const initials = getInitials(profile.name);
-          setProfileInitials(initials);
-          setAvatarColor(getAvatarColor(profile.name));
+
+        const profileData = profile as any;
+        const psychologistName = profileData?.name ?? profileData?.full_name ?? 'Profissional';
+        setProfileName(psychologistName);
+        const initials = getInitials(psychologistName);
+        setProfileInitials(initials);
+        setAvatarColor(getAvatarColor(psychologistName));
+
+        const prefs = {
+          sessionReminder: profileData?.notification_session_reminder ?? true,
+          patientAbsences: profileData?.notification_patient_absences ?? true,
+          pendingPayment: profileData?.notification_pending_payment ?? true,
+          missingEvolution: profileData?.notification_missing_evolution ?? true,
+        };
+
+        const builtNotifications: TopbarNotification[] = [];
+
+        if (prefs.sessionReminder) {
+          const now = new Date();
+          sessions
+            .filter((session) => session.status === 'confirmada' || session.status === 'pendente')
+            .forEach((session) => {
+              if (!session.date || !session.startTime) return;
+              const sessionDateTime = new Date(`${session.date}T${session.startTime}:00`);
+              if (Number.isNaN(sessionDateTime.getTime())) return;
+              const diffMinutes = (sessionDateTime.getTime() - now.getTime()) / (1000 * 60);
+              if (diffMinutes >= 0 && diffMinutes <= 10) {
+                builtNotifications.push({
+                  id: `session-${session.id}`,
+                  title: 'Lembrete de sessão',
+                  description: `${session.patientName} às ${session.startTime}`,
+                  createdAt: sessionDateTime.getTime(),
+                });
+              }
+            });
         }
+
+        if (prefs.patientAbsences) {
+          alerts
+            .filter((alert) => alert.type === 'faltas')
+            .forEach((alert, index) => {
+              builtNotifications.push({
+                id: `absence-${alert.id}`,
+                title: 'Paciente com faltas',
+                description: `${alert.patientName}: ${alert.message}`,
+                createdAt: Date.now() - (index + 1) * 1000,
+              });
+            });
+        }
+
+        if (prefs.pendingPayment) {
+          const threshold = new Date();
+          threshold.setDate(threshold.getDate() - 15);
+
+          transactions
+            .filter((transaction) => {
+              if (transaction.status !== 'pendente' || !transaction.date) return false;
+              const [year, month, day] = String(transaction.date).slice(0, 10).split('-').map(Number);
+              const transactionDate = new Date(year, month - 1, day);
+              return transactionDate <= threshold;
+            })
+            .forEach((transaction) => {
+              builtNotifications.push({
+                id: `payment-${transaction.id}`,
+                title: 'Pagamento pendente',
+                description: `${transaction.patientName} com pendência de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transaction.value || 0)}`,
+                createdAt: Date.now() - 2000,
+              });
+            });
+        }
+
+        if (prefs.missingEvolution) {
+          alerts
+            .filter((alert) => alert.type === 'evolucao')
+            .forEach((alert, index) => {
+              builtNotifications.push({
+                id: `evolution-${alert.id}`,
+                title: 'Evolução não registrada',
+                description: `${alert.patientName}: ${alert.message}`,
+                createdAt: Date.now() - (index + 1) * 3000,
+              });
+            });
+        }
+
+        const sortedNotifications = builtNotifications
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 20);
+
+        setNotifications(sortedNotifications);
+        setAlertsCount(sortedNotifications.length);
       } catch (error) {
         console.error('Erro ao carregar topbar:', error);
       }
     };
 
     loadData();
+    const intervalId = window.setInterval(loadData, 60 * 1000);
 
     // Listen for profile updates from settings page
     window.addEventListener('profileUpdated', loadData);
-    return () => window.removeEventListener('profileUpdated', loadData);
+    return () => {
+      window.removeEventListener('profileUpdated', loadData);
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const today = new Date().toLocaleDateString('pt-BR', {
@@ -71,12 +169,36 @@ export function Topbar({ title }: { title: string }) {
         <p className="text-xs text-muted-foreground capitalize">{today}</p>
       </div>
       <div className="flex items-center gap-4">
-        <button className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-smooth">
-          <Bell className="w-5 h-5" />
-          {alertsCount > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary animate-pulse-pink" />
-          )}
-        </button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-smooth">
+              <Bell className="w-5 h-5" />
+              {alertsCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-primary animate-pulse-pink" />
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-96 p-0 overflow-hidden">
+            <div className="p-4 border-b border-border bg-secondary/30">
+              <h3 className="text-sm font-semibold text-foreground">Notificações</h3>
+              <p className="text-xs text-muted-foreground">Baseado nas preferências da terapeuta</p>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <p className="text-sm text-muted-foreground p-4">Nenhuma notificação no momento.</p>
+              ) : (
+                <div className="divide-y divide-border/70">
+                  {notifications.map((notification) => (
+                    <div key={notification.id} className="p-3 hover:bg-secondary/40 transition-smooth">
+                      <p className="text-sm font-medium text-foreground">{notification.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{notification.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
         <div className="flex items-center gap-2">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${avatarColor}`}>
             {profileInitials}

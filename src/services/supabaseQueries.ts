@@ -6,6 +6,71 @@ import type {
   ClinicalAlert 
 } from '@/data/mockData';
 
+type RecurrencePattern = 'weekly' | 'biweekly' | 'monthly';
+
+type AgendaSessionInput = {
+  patientId: string;
+  patientName: string;
+  date: string;
+  startTime: string;
+  duration: number;
+  type: 'presencial' | 'online';
+  status: 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta';
+  value: number;
+};
+
+type AgendaRecurrenceInput = {
+  pattern: RecurrencePattern;
+  count: number;
+};
+
+const addMonthsClamped = (date: Date, months: number) => {
+  const next = new Date(date);
+  const dayOfMonth = next.getDate();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + months);
+  const daysInTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(dayOfMonth, daysInTargetMonth));
+  return next;
+};
+
+const buildRecurrenceDates = (startDate: string, recurrence: AgendaRecurrenceInput) => {
+  const baseDate = new Date(`${startDate}T00:00:00`);
+
+  return Array.from({ length: recurrence.count }, (_, index) => {
+    if (index === 0) return startDate;
+
+    if (recurrence.pattern === 'monthly') {
+      return addMonthsClamped(baseDate, index).toISOString().split('T')[0];
+    }
+
+    const stepDays = recurrence.pattern === 'weekly' ? 7 : 14;
+    const nextDate = new Date(baseDate);
+    nextDate.setDate(nextDate.getDate() + index * stepDays);
+    return nextDate.toISOString().split('T')[0];
+  });
+};
+
+const mapSessionRecord = (session: any, recurrencePattern?: RecurrencePattern, recurrenceIndex?: number): Session => ({
+  id: session.id,
+  patientId: session.patient_id,
+  patientName: session.patient_name,
+  date: session.date,
+  startTime: String(session.start_time || '').slice(0, 5),
+  duration: session.duration,
+  type: session.type,
+  status: session.status,
+  value: session.value,
+  paymentStatus: session.payment_status,
+  paymentMethod: session.payment_method,
+  onlineLink: session.online_link,
+  observations: session.observations,
+  evolutionNote: session.evolution_note,
+  recurrencePattern: session.recurrence_pattern ?? recurrencePattern,
+  recurrenceIndex:
+    typeof session.recurrence_index === 'number' ? session.recurrence_index : recurrenceIndex,
+});
+
 /**
  * Fetch all patients for the logged-in psychologist
  */
@@ -124,81 +189,58 @@ export const fetchSessions = async (): Promise<Session[]> => {
     throw error;
   }
 
-  return (data || []).map((session: any) => ({
-    id: session.id,
-    patientId: session.patient_id,
-    patientName: session.patient_name,
-    date: session.date,
-    startTime: String(session.start_time || '').slice(0, 5),
-    duration: session.duration,
-    type: session.type,
-    status: session.status,
-    value: session.value,
-    paymentStatus: session.payment_status,
-    paymentMethod: session.payment_method,
-    onlineLink: session.online_link,
-    observations: session.observations,
-    evolutionNote: session.evolution_note,
-  }));
+  return (data || []).map((session: any) => mapSessionRecord(session));
 };
 
 /**
- * Create a new session from Agenda and associate it with a patient
+ * Create one or more sessions from Agenda and associate them with a patient
  */
-export const createAgendaSession = async (input: {
-  patientId: string;
-  patientName: string;
-  date: string;
-  startTime: string;
-  duration: number;
-  type: 'presencial' | 'online';
-  status: 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta';
-  value: number;
-}) => {
+export const createAgendaSessions = async (
+  input: AgendaSessionInput & {
+    recurrence?: AgendaRecurrenceInput;
+  }
+): Promise<Session[]> => {
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) throw new Error('User not authenticated');
 
+  const recurrenceDates = input.recurrence
+    ? buildRecurrenceDates(input.date, input.recurrence)
+    : [input.date];
+
+  const sessionsPayload = recurrenceDates.map((date, index) => ({
+    psychologist_id: user.id,
+    patient_id: input.patientId,
+    patient_name: input.patientName,
+    date,
+    start_time: input.startTime,
+    duration: input.duration,
+    type: input.type,
+    status: input.status,
+    value: input.value,
+    payment_status: 'pendente',
+    recurrence_pattern: input.recurrence?.pattern ?? null,
+    recurrence_index: input.recurrence ? index : null,
+  }));
+
   const { data, error } = await supabase
     .from('sessions')
-    .insert([
-      {
-        psychologist_id: user.id,
-        patient_id: input.patientId,
-        patient_name: input.patientName,
-        date: input.date,
-        start_time: input.startTime,
-        duration: input.duration,
-        type: input.type,
-        status: input.status,
-        value: input.value,
-        payment_status: 'pendente',
-      },
-    ])
-    .select()
-    .single();
+    .insert(sessionsPayload)
+    .select();
 
   if (error) {
     console.error('Error creating agenda session:', error);
     throw error;
   }
 
-  return {
-    id: data.id,
-    patientId: data.patient_id,
-    patientName: data.patient_name,
-    date: data.date,
-    startTime: String(data.start_time || '').slice(0, 5),
-    duration: data.duration,
-    type: data.type,
-    status: data.status,
-    value: data.value,
-    paymentStatus: data.payment_status,
-    paymentMethod: data.payment_method,
-    onlineLink: data.online_link,
-    observations: data.observations,
-    evolutionNote: data.evolution_note,
-  } as Session;
+  return (data || []).map((session: any, index: number) =>
+    mapSessionRecord(session, input.recurrence?.pattern, input.recurrence ? index : undefined)
+  );
+};
+
+export const createAgendaSession = async (input: AgendaSessionInput) => {
+  const sessions = await createAgendaSessions(input);
+  return sessions[0];
 };
 
 /**
@@ -230,22 +272,22 @@ export const updateAgendaSession = async (
     throw error;
   }
 
-  return {
-    id: data.id,
-    patientId: data.patient_id,
-    patientName: data.patient_name,
-    date: data.date,
-    startTime: String(data.start_time || '').slice(0, 5),
-    duration: data.duration,
-    type: data.type,
-    status: data.status,
-    value: data.value,
-    paymentStatus: data.payment_status,
-    paymentMethod: data.payment_method,
-    onlineLink: data.online_link,
-    observations: data.observations,
-    evolutionNote: data.evolution_note,
-  } as Session;
+  return mapSessionRecord(data);
+};
+
+/**
+ * Delete a session from agenda
+ */
+export const deleteAgendaSession = async (sessionId: string) => {
+  const { error } = await supabase
+    .from('sessions')
+    .delete()
+    .eq('id', sessionId);
+
+  if (error) {
+    console.error('Error deleting agenda session:', error);
+    throw error;
+  }
 };
 
 /**

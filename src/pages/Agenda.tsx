@@ -16,7 +16,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import type { Patient, Session } from '@/data/mockData';
 import {
-  createAgendaSession,
+  createAgendaSessions,
+  deleteAgendaSession,
   fetchPatients,
   fetchPsychologistProfile,
   fetchSchedulePreferences,
@@ -25,6 +26,7 @@ import {
 } from '@/services/supabaseQueries';
 
 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+type RecurrencePattern = 'none' | 'weekly' | 'biweekly' | 'monthly';
 
 interface SchedulePreference {
   dayOfWeek: number;
@@ -108,6 +110,33 @@ const getDayIndexFromDate = (dateStr: string) => {
   return new Date(year, month - 1, day).getDay();
 };
 
+const addMonthsClamped = (date: Date, months: number) => {
+  const next = new Date(date);
+  const dayOfMonth = next.getDate();
+  next.setDate(1);
+  next.setMonth(next.getMonth() + months);
+  const daysInTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(dayOfMonth, daysInTargetMonth));
+  return next;
+};
+
+const buildRecurrenceDates = (startDate: string, pattern: Exclude<RecurrencePattern, 'none'>, count: number) => {
+  const baseDate = new Date(`${startDate}T00:00:00`);
+
+  return Array.from({ length: count }, (_, index) => {
+    if (index === 0) return startDate;
+
+    if (pattern === 'monthly') {
+      return addMonthsClamped(baseDate, index).toISOString().split('T')[0];
+    }
+
+    const stepDays = pattern === 'weekly' ? 7 : 14;
+    const nextDate = new Date(baseDate);
+    nextDate.setDate(nextDate.getDate() + index * stepDays);
+    return nextDate.toISOString().split('T')[0];
+  });
+};
+
 export default function Agenda() {
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -133,6 +162,8 @@ export default function Agenda() {
     type: 'presencial' as 'presencial' | 'online',
     status: 'pendente' as 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta',
     value: 250,
+    recurrencePattern: 'none' as RecurrencePattern,
+    recurrenceCount: 4,
   });
   const [loading, setLoading] = useState(true);
   const weekDates = getWeekDates(currentDate);
@@ -190,6 +221,19 @@ export default function Agenda() {
     [patients, newSessionForm.patientId]
   );
 
+  const recurrenceLabel = useMemo(() => {
+    switch (newSessionForm.recurrencePattern) {
+      case 'weekly':
+        return 'Semanal';
+      case 'biweekly':
+        return 'Quinzenal';
+      case 'monthly':
+        return 'Mensal';
+      default:
+        return 'Sem recorrência';
+    }
+  }, [newSessionForm.recurrencePattern]);
+
   const resetNewSessionForm = () => {
     setNewSessionForm({
       patientId: '',
@@ -199,6 +243,8 @@ export default function Agenda() {
       type: 'presencial',
       status: 'pendente',
       value: defaultSessionValue,
+      recurrencePattern: 'none',
+      recurrenceCount: 4,
     });
   };
 
@@ -230,12 +276,33 @@ export default function Agenda() {
       return;
     }
 
-    const selectedDayIndex = getDayIndexFromDate(newSessionForm.date);
-    const scheduleDay = scheduleMap[selectedDayIndex];
-    if (!isWithinDayAvailability(scheduleDay, newSessionForm.startTime)) {
+    if (newSessionForm.recurrencePattern !== 'none' && newSessionForm.recurrenceCount < 2) {
+      toast({
+        title: 'Recorrência inválida',
+        description: 'Informe pelo menos 2 consultas para gerar a recorrência.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const recurrenceDates = newSessionForm.recurrencePattern === 'none'
+      ? [newSessionForm.date]
+      : buildRecurrenceDates(
+          newSessionForm.date,
+          newSessionForm.recurrencePattern,
+          newSessionForm.recurrenceCount
+        );
+
+    const invalidDate = recurrenceDates.find((date) => {
+      const selectedDayIndex = getDayIndexFromDate(date);
+      const scheduleDay = scheduleMap[selectedDayIndex];
+      return !isWithinDayAvailability(scheduleDay, newSessionForm.startTime);
+    });
+
+    if (invalidDate) {
       toast({
         title: 'Horário indisponível',
-        description: 'Este dia/horário está fora da agenda de atendimento definida pelo psicólogo.',
+        description: 'Uma das consultas recorrentes cai fora da agenda de atendimento definida pelo psicólogo.',
         variant: 'destructive',
       });
       return;
@@ -249,7 +316,7 @@ export default function Agenda() {
         throw new Error('Paciente selecionado não encontrado.');
       }
 
-      const createdSession = await createAgendaSession({
+      const createdSessions = await createAgendaSessions({
         patientId: patient.id,
         patientName: patient.name,
         date: newSessionForm.date,
@@ -258,15 +325,22 @@ export default function Agenda() {
         type: newSessionForm.type,
         status: newSessionForm.status,
         value: newSessionForm.value,
+        recurrence:
+          newSessionForm.recurrencePattern === 'none'
+            ? undefined
+            : {
+                pattern: newSessionForm.recurrencePattern,
+                count: newSessionForm.recurrenceCount,
+              },
       });
 
-      setSessions((prev) => [createdSession, ...prev]);
+      setSessions((prev) => [...createdSessions, ...prev]);
       setNewSessionOpen(false);
       resetNewSessionForm();
 
       toast({
-        title: 'Sessão criada com sucesso! ✅',
-        description: `${patient.name} em ${newSessionForm.date.split('-').reverse().join('/')} às ${newSessionForm.startTime}`,
+        title: createdSessions.length > 1 ? 'Sessões recorrentes criadas com sucesso! ✅' : 'Sessão criada com sucesso! ✅',
+        description: `${patient.name} em ${newSessionForm.date.split('-').reverse().join('/')} às ${newSessionForm.startTime}${createdSessions.length > 1 ? `, repetida ${createdSessions.length - 1} vez(es)` : ''}`,
       });
     } catch (error: any) {
       toast({
@@ -348,6 +422,32 @@ export default function Agenda() {
       toast({
         title: 'Erro ao remarcar sessão',
         description: error?.message ?? 'Não foi possível remarcar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSessionAction(false);
+    }
+  };
+
+  const handleDeleteSession = async () => {
+    if (!selectedSession) return;
+
+    const confirmed = window.confirm('Tem certeza que deseja excluir esta consulta da agenda?');
+    if (!confirmed) return;
+
+    try {
+      setSavingSessionAction(true);
+      await deleteAgendaSession(selectedSession.id);
+      setSessions((prev) => prev.filter((session) => session.id !== selectedSession.id));
+      setSelectedSession(null);
+
+      toast({
+        title: 'Consulta excluída com sucesso! ✅',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao excluir consulta',
+        description: error?.message ?? 'Não foi possível excluir a consulta.',
         variant: 'destructive',
       });
     } finally {
@@ -500,6 +600,19 @@ export default function Agenda() {
                   </span>
                 </div>
               </div>
+              {selectedSession.recurrencePattern && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Recorrência</p>
+                  <p className="text-sm text-foreground capitalize">
+                    {selectedSession.recurrencePattern === 'weekly'
+                      ? 'Semanal'
+                      : selectedSession.recurrencePattern === 'biweekly'
+                        ? 'Quinzenal'
+                        : 'Mensal'}
+                    {typeof selectedSession.recurrenceIndex === 'number' ? ` • ocorrência ${selectedSession.recurrenceIndex + 1}` : ''}
+                  </p>
+                </div>
+              )}
               {selectedSession.onlineLink && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Link da Sessão</p>
@@ -532,6 +645,15 @@ export default function Agenda() {
                   disabled={savingSessionAction}
                 >
                   Falta
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-destructive text-destructive hover:bg-destructive/10"
+                  onClick={handleDeleteSession}
+                  disabled={savingSessionAction}
+                >
+                  Excluir
                 </Button>
               </div>
             </div>
@@ -690,6 +812,47 @@ export default function Agenda() {
                     <SelectItem value="falta">Falta</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Recorrência</label>
+                <Select
+                  value={newSessionForm.recurrencePattern}
+                  onValueChange={(value) =>
+                    setNewSessionForm((prev) => ({
+                      ...prev,
+                      recurrencePattern: value as RecurrencePattern,
+                      recurrenceCount: value === 'none' ? prev.recurrenceCount : Math.max(prev.recurrenceCount, 4),
+                    }))
+                  }
+                  disabled={savingSession}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem recorrência</SelectItem>
+                    <SelectItem value="weekly">Semanal</SelectItem>
+                    <SelectItem value="biweekly">Quinzenal</SelectItem>
+                    <SelectItem value="monthly">Mensal</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">{recurrenceLabel}</p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Qtd. de consultas</label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={newSessionForm.recurrenceCount}
+                  onChange={(e) => setNewSessionForm((prev) => ({ ...prev, recurrenceCount: Number(e.target.value) || 0 }))}
+                  className="bg-secondary border-border"
+                  disabled={savingSession || newSessionForm.recurrencePattern === 'none'}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">Inclui a primeira consulta. Use 4 para um acompanhamento mensal típico.</p>
               </div>
             </div>
 
