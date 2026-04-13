@@ -22,6 +22,8 @@ export default function Auth() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  const normalizeCrp = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -44,23 +46,90 @@ export default function Auth() {
         if (error) throw error;
         navigate('/');
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
+        // Validação de campos obrigatórios
+        if (!fullName.trim()) {
+          throw new Error('Nome completo é obrigatório');
+        }
+        if (!crp.trim()) {
+          throw new Error('CRP é obrigatório');
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedCrp = normalizeCrp(crp.trim());
+
+        const { data: conflictData, error: conflictError } = await supabase.rpc('check_profile_conflict', {
+          p_email: normalizedEmail,
+          p_crp: normalizedCrp,
+        });
+
+        if (conflictError) {
+          throw new Error('Não foi possível validar duplicidade de e-mail/CRP.');
+        }
+
+        const conflict = Array.isArray(conflictData) ? conflictData[0] : conflictData;
+        if (conflict?.email_exists) {
+          throw new Error('Este e-mail já está cadastrado.');
+        }
+        if (conflict?.crp_exists) {
+          throw new Error('Este CRP já está cadastrado.');
+        }
+
+        // Sign up com metadata
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: normalizedEmail,
           password,
           options: {
-            data: { full_name: fullName, crp },
-            emailRedirectTo: window.location.origin,
+            data: { 
+              name: fullName, 
+              crp: normalizedCrp,
+            },
           },
         });
-        if (error) throw error;
+
+        if (signUpError) {
+          if (signUpError.message?.toLowerCase().includes('already registered')) {
+            throw new Error('Este e-mail já está cadastrado.');
+          }
+          throw signUpError;
+        }
+
+        // Insert adicional em profiles como fallback
+        // (o trigger SQL fará isso automaticamente, mas como backup)
+        if (data.user) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert([
+              {
+                id: data.user.id,
+                email: normalizedEmail,
+                name: fullName.trim(),
+                crp: normalizedCrp,
+              }
+            ], { onConflict: 'id' });
+
+          // Se der erro de duplicata, ignora (significa que o trigger já criou)
+          if (profileError && !profileError.message.includes('duplicate')) {
+            console.warn('Aviso ao criar perfil:', profileError);
+          }
+        }
+
         toast({
-          title: 'Cadastro realizado!',
-          description: 'Verifique seu e-mail para confirmar a conta.',
+          title: 'Cadastro realizado com sucesso! 🎉',
+          description: 'Você será redirecionado para o login.',
         });
+
+        // Redirecionar para login após 2 segundos
+        setTimeout(() => {
+          setIsLogin(true);
+          setEmail('');
+          setPassword('');
+          setFullName('');
+          setCrp('');
+        }, 2000);
       }
     } catch (error: any) {
       toast({
-        title: 'Erro',
+        title: 'Erro no cadastro',
         description: error.message || 'Ocorreu um erro. Tente novamente.',
         variant: 'destructive',
       });

@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Plus, Video, MapPin, X } from 'lucide-react';
-import { sessions, getStatusBadgeClass, getStatusLabel, formatCurrency } from '@/data/mockData';
+import { ChevronLeft, ChevronRight, Plus, Video, MapPin, Loader } from 'lucide-react';
+import { getStatusBadgeClass, getStatusLabel, formatCurrency } from '@/data/mockData';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { Session } from '@/data/mockData';
+import { fetchSessions } from '@/services/supabaseQueries';
 
 const hours = Array.from({ length: 12 }, (_, i) => `${(i + 7).toString().padStart(2, '0')}:00`);
 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -31,7 +32,24 @@ const sessionColors: Record<string, string> = {
 export default function Agenda() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
   const weekDates = getWeekDates(currentDate);
+
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const data = await fetchSessions();
+        setSessions(data);
+      } catch (error) {
+        console.error('Erro ao carregar sessões:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSessions();
+  }, []);
 
   const prevWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 7); setCurrentDate(d); };
   const nextWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 7); setCurrentDate(d); };
@@ -45,6 +63,16 @@ export default function Agenda() {
   });
 
   const monthYear = currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  if (loading) {
+    return (
+      <AppLayout title="Agenda">
+        <div className="flex items-center justify-center min-h-[360px]">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Agenda">

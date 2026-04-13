@@ -1,10 +1,12 @@
 import { AppLayout } from '@/components/layout/AppLayout';
 import { motion } from 'framer-motion';
 import { User, Clock, DollarSign, Bell, Shield } from 'lucide-react';
-import { psychologist } from '@/data/mockData';
+import { useEffect, useState } from 'react';
+import { fetchPsychologistProfile, updatePsychologistProfile } from '@/services/supabaseQueries';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/hooks/use-toast';
 
 const schedule = [
   { day: 'Segunda', start: '08:00', end: '18:00', active: true },
@@ -17,6 +19,73 @@ const schedule = [
 ];
 
 export default function SettingsPage() {
+  const { toast } = useToast();
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState({
+    name: '',
+    crp: '',
+    email: '',
+    phone: '',
+    specialties: '',
+  });
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await fetchPsychologistProfile();
+        if (data) {
+          setProfile({
+            name: data.name ?? '',
+            crp: data.crp ?? '',
+            email: data.email ?? '',
+            phone: data.phone ?? '',
+            specialties: Array.isArray(data.specialties) ? data.specialties.join(', ') : '',
+          });
+        }
+      } catch (error: any) {
+        toast({
+          title: 'Erro ao carregar perfil',
+          description: error?.message ?? 'Não foi possível carregar seus dados.',
+          variant: 'destructive',
+        });
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [toast]);
+
+  const handleSaveProfile = async () => {
+    try {
+      setSaving(true);
+      await updatePsychologistProfile({
+        name: profile.name.trim(),
+        crp: profile.crp.trim(),
+        email: profile.email.trim().toLowerCase(),
+        phone: profile.phone.trim(),
+        specialties: profile.specialties
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean),
+      });
+
+      toast({
+        title: 'Perfil atualizado',
+        description: 'Seus dados foram salvos com sucesso.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao salvar perfil',
+        description: error?.message ?? 'Não foi possível salvar seus dados.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <AppLayout title="Configurações">
       <div className="max-w-3xl space-y-6">
@@ -29,26 +98,57 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Nome</label>
-              <Input defaultValue={psychologist.name} className="bg-secondary border-border" />
+              <Input
+                value={profile.name}
+                onChange={(e) => setProfile((prev) => ({ ...prev, name: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={loadingProfile}
+              />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">CRP</label>
-              <Input defaultValue={psychologist.crp} className="bg-secondary border-border" />
+              <Input
+                value={profile.crp}
+                onChange={(e) => setProfile((prev) => ({ ...prev, crp: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={loadingProfile}
+              />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">E-mail</label>
-              <Input defaultValue={psychologist.email} className="bg-secondary border-border" />
+              <Input
+                value={profile.email}
+                onChange={(e) => setProfile((prev) => ({ ...prev, email: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={loadingProfile}
+              />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Telefone</label>
-              <Input defaultValue={psychologist.phone} className="bg-secondary border-border" />
+              <Input
+                value={profile.phone}
+                onChange={(e) => setProfile((prev) => ({ ...prev, phone: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={loadingProfile}
+              />
             </div>
             <div className="md:col-span-2">
               <label className="text-xs text-muted-foreground mb-1 block">Especialidades</label>
-              <Input defaultValue={psychologist.specialties.join(', ')} className="bg-secondary border-border" />
+              <Input
+                value={profile.specialties}
+                onChange={(e) => setProfile((prev) => ({ ...prev, specialties: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={loadingProfile}
+              />
             </div>
           </div>
-          <Button className="mt-4 bg-primary hover:bg-primary/90 text-primary-foreground">Salvar Alterações</Button>
+          <Button
+            className="mt-4 bg-primary hover:bg-primary/90 text-primary-foreground"
+            onClick={handleSaveProfile}
+            disabled={loadingProfile || saving}
+          >
+            {saving ? 'Salvando...' : 'Salvar Alterações'}
+          </Button>
         </motion.div>
 
         {/* Schedule */}

@@ -1,8 +1,9 @@
 import { LayoutDashboard, Users, Calendar, DollarSign, Settings, LogOut, Flower2 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { psychologist } from '@/data/mockData';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useState } from 'react';
+import { fetchPsychologistProfile } from '@/services/supabaseQueries';
 
 const navItems = [
   { title: 'Dashboard', url: '/', icon: LayoutDashboard },
@@ -16,6 +17,25 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
+  const [profile, setProfile] = useState<{ name: string; crp: string } | null>(null);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await fetchPsychologistProfile();
+        if (data) {
+          setProfile({
+            name: data.name ?? 'Profissional',
+            crp: data.crp ?? '-',
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao carregar perfil:', error);
+      }
+    };
+
+    loadProfile();
+  }, []);
 
   const handleLogout = async () => {
     await signOut();
@@ -66,8 +86,8 @@ export function AppSidebar() {
             CR
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{psychologist.name}</p>
-            <p className="text-xs text-muted-foreground">CRP {psychologist.crp}</p>
+            <p className="text-sm font-medium text-foreground truncate">{profile?.name ?? 'Carregando...'}</p>
+            <p className="text-xs text-muted-foreground">CRP {profile?.crp ?? '-'}</p>
           </div>
           <button onClick={handleLogout} className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-smooth">
             <LogOut className="w-4 h-4" />

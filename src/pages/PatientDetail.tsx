@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { motion } from 'framer-motion';
-import { ArrowLeft, User, Stethoscope, FileText, DollarSign, FolderOpen, CheckCircle2, Circle, AlertTriangle } from 'lucide-react';
-import { patients, sessions, transactions, formatCurrency, formatDateBR, getStatusBadgeClass, getStatusLabel } from '@/data/mockData';
+import { ArrowLeft, User, Stethoscope, FileText, DollarSign, FolderOpen, CheckCircle2, Circle, Loader } from 'lucide-react';
+import { formatCurrency, formatDateBR, getStatusBadgeClass, getStatusLabel } from '@/data/mockData';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { Patient, Session, Transaction } from '@/data/mockData';
+import { fetchPatientWithGoals, fetchSessions, fetchTransactions } from '@/services/supabaseQueries';
 
 const riskColors: Record<string, string> = {
   baixo: 'badge-info',
@@ -16,7 +18,57 @@ const riskColors: Record<string, string> = {
 export default function PatientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const patient = patients.find(p => p.id === id);
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const [patientData, sessionsData, transactionsData] = await Promise.all([
+          fetchPatientWithGoals(id),
+          fetchSessions(),
+          fetchTransactions(),
+        ]);
+        setPatient(patientData);
+        setSessions(sessionsData);
+        setTransactions(transactionsData);
+      } catch (error) {
+        console.error('Erro ao carregar detalhe do paciente:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [id]);
+
+  const patientSessions = useMemo(
+    () => sessions.filter((s) => s.patientId === id).sort((a, b) => b.date.localeCompare(a.date)),
+    [sessions, id]
+  );
+  const patientTransactions = useMemo(
+    () => transactions.filter((t) => t.patientId === id),
+    [transactions, id]
+  );
+  const totalPaid = patientTransactions.filter((t) => t.status === 'pago').reduce((s, t) => s + t.value, 0);
+  const totalPending = patientTransactions.filter((t) => t.status === 'pendente').reduce((s, t) => s + t.value, 0);
+
+  if (loading) {
+    return (
+      <AppLayout title="Paciente">
+        <div className="flex items-center justify-center min-h-[360px]">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   if (!patient) {
     return (
@@ -26,11 +78,6 @@ export default function PatientDetail() {
       </AppLayout>
     );
   }
-
-  const patientSessions = sessions.filter(s => s.patientId === id).sort((a, b) => b.date.localeCompare(a.date));
-  const patientTransactions = transactions.filter(t => t.patientId === id);
-  const totalPaid = patientTransactions.filter(t => t.status === 'pago').reduce((s, t) => s + t.value, 0);
-  const totalPending = patientTransactions.filter(t => t.status === 'pendente').reduce((s, t) => s + t.value, 0);
 
   return (
     <AppLayout title={patient.name}>

@@ -1,24 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { motion } from 'framer-motion';
-import { Search, Plus, Filter } from 'lucide-react';
+import { Loader, Search, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { patients, getStatusBadgeClass, getStatusLabel, formatDateBR } from '@/data/mockData';
+import { getStatusBadgeClass, getStatusLabel, formatDateBR } from '@/data/mockData';
+import type { Patient } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { fetchPatients } from '@/services/supabaseQueries';
 
 const statusFilters = ['todos', 'ativo', 'em_pausa', 'alta', 'encaminhado'] as const;
 
 export default function Patients() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const loadPatients = async () => {
+      try {
+        const data = await fetchPatients();
+        setPatients(data);
+      } catch (error) {
+        console.error('Erro ao carregar pacientes:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPatients();
+  }, []);
 
   const filtered = patients.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'todos' || p.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <AppLayout title="Pacientes">
+        <div className="flex items-center justify-center min-h-[360px]">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Pacientes">
