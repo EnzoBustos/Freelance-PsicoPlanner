@@ -129,7 +129,7 @@ export const fetchSessions = async (): Promise<Session[]> => {
     patientId: session.patient_id,
     patientName: session.patient_name,
     date: session.date,
-    startTime: session.start_time,
+    startTime: String(session.start_time || '').slice(0, 5),
     duration: session.duration,
     type: session.type,
     status: session.status,
@@ -140,6 +140,112 @@ export const fetchSessions = async (): Promise<Session[]> => {
     observations: session.observations,
     evolutionNote: session.evolution_note,
   }));
+};
+
+/**
+ * Create a new session from Agenda and associate it with a patient
+ */
+export const createAgendaSession = async (input: {
+  patientId: string;
+  patientName: string;
+  date: string;
+  startTime: string;
+  duration: number;
+  type: 'presencial' | 'online';
+  status: 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta';
+  value: number;
+}) => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('sessions')
+    .insert([
+      {
+        psychologist_id: user.id,
+        patient_id: input.patientId,
+        patient_name: input.patientName,
+        date: input.date,
+        start_time: input.startTime,
+        duration: input.duration,
+        type: input.type,
+        status: input.status,
+        value: input.value,
+        payment_status: 'pendente',
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating agenda session:', error);
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    patientId: data.patient_id,
+    patientName: data.patient_name,
+    date: data.date,
+    startTime: String(data.start_time || '').slice(0, 5),
+    duration: data.duration,
+    type: data.type,
+    status: data.status,
+    value: data.value,
+    paymentStatus: data.payment_status,
+    paymentMethod: data.payment_method,
+    onlineLink: data.online_link,
+    observations: data.observations,
+    evolutionNote: data.evolution_note,
+  } as Session;
+};
+
+/**
+ * Update a session fields (status, date, time, etc)
+ */
+export const updateAgendaSession = async (
+  sessionId: string,
+  updates: {
+    date?: string;
+    startTime?: string;
+    status?: 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta';
+  }
+) => {
+  const payload: Record<string, any> = {};
+
+  if (updates.date !== undefined) payload.date = updates.date;
+  if (updates.startTime !== undefined) payload.start_time = updates.startTime;
+  if (updates.status !== undefined) payload.status = updates.status;
+
+  const { data, error } = await supabase
+    .from('sessions')
+    .update(payload)
+    .eq('id', sessionId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating agenda session:', error);
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    patientId: data.patient_id,
+    patientName: data.patient_name,
+    date: data.date,
+    startTime: String(data.start_time || '').slice(0, 5),
+    duration: data.duration,
+    type: data.type,
+    status: data.status,
+    value: data.value,
+    paymentStatus: data.payment_status,
+    paymentMethod: data.payment_method,
+    onlineLink: data.online_link,
+    observations: data.observations,
+    evolutionNote: data.evolution_note,
+  } as Session;
 };
 
 /**
@@ -195,10 +301,15 @@ export const fetchClinicalAlerts = async (): Promise<ClinicalAlert[]> => {
  * Create a new patient
  */
 export const createPatient = async (patient: Omit<Patient, 'id'>) => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
   const { data, error } = await supabase
     .from('patients')
     .insert([
       {
+        psychologist_id: user.id,
         name: patient.name,
         birth_date: patient.birthDate,
         age: patient.age,
@@ -233,6 +344,210 @@ export const createPatient = async (patient: Omit<Patient, 'id'>) => {
   }
 
   return data;
+};
+
+/**
+ * Update a session evolution note
+ */
+export const updateSessionEvolution = async (sessionId: string, evolutionNote: string) => {
+  const { error } = await supabase
+    .from('sessions')
+    .update({ evolution_note: evolutionNote })
+    .eq('id', sessionId);
+
+  if (error) {
+    console.error('Error updating session evolution:', error);
+    throw error;
+  }
+};
+
+/**
+ * Create a new evolution entry for a patient
+ */
+export const createPatientEvolution = async (input: {
+  patientId: string;
+  patientName: string;
+  date: string;
+  evolutionNote: string;
+  value?: number;
+}) => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const now = new Date();
+  const startTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const { data, error } = await supabase
+    .from('sessions')
+    .insert([
+      {
+        psychologist_id: user.id,
+        patient_id: input.patientId,
+        patient_name: input.patientName,
+        date: input.date,
+        start_time: startTime,
+        duration: 50,
+        type: 'presencial',
+        status: 'realizada',
+        value: input.value ?? 0,
+        payment_status: 'isento',
+        evolution_note: input.evolutionNote,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating patient evolution:', error);
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    patientId: data.patient_id,
+    patientName: data.patient_name,
+    date: data.date,
+    startTime: data.start_time,
+    duration: data.duration,
+    type: data.type,
+    status: data.status,
+    value: data.value,
+    paymentStatus: data.payment_status,
+    paymentMethod: data.payment_method,
+    onlineLink: data.online_link,
+    observations: data.observations,
+    evolutionNote: data.evolution_note,
+  } as Session;
+};
+
+/**
+ * Create a financial session and matching transaction for a patient
+ */
+export const createPatientFinancialSession = async (input: {
+  patientId: string;
+  patientName: string;
+  date: string;
+  value: number;
+  paymentMethod?: string;
+  paymentStatus: 'pago' | 'pendente';
+}) => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const normalizedPaymentMethod =
+    input.paymentStatus === 'pendente' ? null : input.paymentMethod || null;
+
+  const { data: sessionData, error: sessionError } = await supabase
+    .from('sessions')
+    .insert([
+      {
+        psychologist_id: user.id,
+        patient_id: input.patientId,
+        patient_name: input.patientName,
+        date: input.date,
+        start_time: '09:00',
+        duration: 50,
+        type: 'presencial',
+        status: 'realizada',
+        value: input.value,
+        payment_status: input.paymentStatus,
+        payment_method: normalizedPaymentMethod,
+      },
+    ])
+    .select()
+    .single();
+
+  if (sessionError) {
+    console.error('Error creating financial session:', sessionError);
+    throw sessionError;
+  }
+
+  const { data: transactionData, error: transactionError } = await supabase
+    .from('transactions')
+    .insert([
+      {
+        psychologist_id: user.id,
+        patient_id: input.patientId,
+        patient_name: input.patientName,
+        date: input.date,
+        type: 'sessao',
+        value: input.value,
+        payment_method: normalizedPaymentMethod,
+        status: input.paymentStatus,
+      },
+    ])
+    .select()
+    .single();
+
+  if (transactionError) {
+    console.error('Error creating transaction for session:', transactionError);
+    throw transactionError;
+  }
+
+  return {
+    session: {
+      id: sessionData.id,
+      patientId: sessionData.patient_id,
+      patientName: sessionData.patient_name,
+      date: sessionData.date,
+      startTime: String(sessionData.start_time || '').slice(0, 5),
+      duration: sessionData.duration,
+      type: sessionData.type,
+      status: sessionData.status,
+      value: sessionData.value,
+      paymentStatus: sessionData.payment_status,
+      paymentMethod: sessionData.payment_method,
+      onlineLink: sessionData.online_link,
+      observations: sessionData.observations,
+      evolutionNote: sessionData.evolution_note,
+    } as Session,
+    transaction: {
+      id: transactionData.id,
+      date: transactionData.date,
+      patientId: transactionData.patient_id,
+      patientName: transactionData.patient_name,
+      type: transactionData.type,
+      value: transactionData.value,
+      paymentMethod: transactionData.payment_method,
+      status: transactionData.status,
+    } as Transaction,
+  };
+};
+
+/**
+ * Register a payment for a pending transaction
+ */
+export const registerTransactionPayment = async (
+  transactionId: string,
+  paymentMethod: string
+) => {
+  const { data, error } = await supabase
+    .from('transactions')
+    .update({
+      status: 'pago',
+      payment_method: paymentMethod || null,
+    })
+    .eq('id', transactionId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error registering transaction payment:', error);
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    date: data.date,
+    patientId: data.patient_id,
+    patientName: data.patient_name,
+    type: data.type,
+    value: data.value,
+    paymentMethod: data.payment_method,
+    status: data.status,
+  } as Transaction;
 };
 
 /**
@@ -323,17 +638,185 @@ export const updatePsychologistProfile = async (updates: any) => {
   
   if (!user) throw new Error('User not authenticated');
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('profiles')
     .update(updates)
-    .eq('id', user.id)
-    .select()
-    .single();
+    .eq('id', user.id);
 
   if (error) {
     console.error('Error updating profile:', error);
     throw error;
   }
+};
 
-  return data;
+/**
+ * Fetch schedule preferences for the logged-in psychologist
+ */
+export const fetchSchedulePreferences = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
+    .from('schedule_preferences')
+    .select('*')
+    .eq('psychologist_id', user.id)
+    .order('day_of_week', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching schedule preferences:', error);
+    throw error;
+  }
+
+  return (data || []).map((item: any) => ({
+    id: item.id,
+    dayOfWeek: item.day_of_week,
+    dayName: item.day_name,
+    isActive: item.is_active,
+    startTime: item.start_time,
+    endTime: item.end_time,
+  }));
+};
+
+/**
+ * Update a single day schedule preference
+ */
+export const updateSchedulePreference = async (scheduleId: string, updates: {
+  isActive: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
+}) => {
+  const { error } = await supabase
+    .from('schedule_preferences')
+    .update({
+      is_active: updates.isActive,
+      start_time: updates.startTime,
+      end_time: updates.endTime,
+    })
+    .eq('id', scheduleId);
+
+  if (error) {
+    console.error('Error updating schedule preference:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update notification preferences for the logged-in psychologist
+ */
+export const updateNotificationPreferences = async (preferences: {
+  notification_session_reminder: boolean;
+  notification_patient_absences: boolean;
+  notification_pending_payment: boolean;
+  notification_missing_evolution: boolean;
+}) => {
+  const { error } = await supabase
+    .from('profiles')
+    .update(preferences)
+    .eq('id', (await supabase.auth.getUser()).data.user?.id);
+
+  if (error) {
+    console.error('Error updating notification preferences:', error);
+    throw error;
+  }
+};
+
+export interface PatientDocumentItem {
+  name: string;
+  path: string;
+  createdAt: string | null;
+  size: number | null;
+}
+
+const PATIENT_DOCUMENTS_BUCKET = 'patient-documents';
+
+/**
+ * List patient documents from Supabase Storage
+ */
+export const fetchPatientDocuments = async (patientId: string): Promise<PatientDocumentItem[]> => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const folder = `${user.id}/${patientId}`;
+  const { data, error } = await supabase
+    .storage
+    .from(PATIENT_DOCUMENTS_BUCKET)
+    .list(folder, {
+      limit: 100,
+      sortBy: { column: 'created_at', order: 'desc' },
+    });
+
+  if (error) {
+    console.error('Error listing patient documents:', error);
+    throw error;
+  }
+
+  return (data || [])
+    .filter((item: any) => item.name)
+    .map((item: any) => ({
+      name: item.name,
+      path: `${folder}/${item.name}`,
+      createdAt: item.created_at ?? null,
+      size: item.metadata?.size ?? null,
+    }));
+};
+
+/**
+ * Upload a document for a patient to Supabase Storage
+ */
+export const uploadPatientDocument = async (patientId: string, file: File) => {
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const sanitizedName = file.name.replace(/\s+/g, '_');
+  const fileName = `${Date.now()}_${sanitizedName}`;
+  const filePath = `${user.id}/${patientId}/${fileName}`;
+
+  const { error } = await supabase
+    .storage
+    .from(PATIENT_DOCUMENTS_BUCKET)
+    .upload(filePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Error uploading patient document:', error);
+    throw error;
+  }
+
+  return filePath;
+};
+
+/**
+ * Get signed download URL for a patient document
+ */
+export const getPatientDocumentDownloadUrl = async (filePath: string) => {
+  const { data, error } = await supabase
+    .storage
+    .from(PATIENT_DOCUMENTS_BUCKET)
+    .createSignedUrl(filePath, 60);
+
+  if (error) {
+    console.error('Error creating signed URL:', error);
+    throw error;
+  }
+
+  return data.signedUrl;
+};
+
+/**
+ * Change password for the logged-in user
+ */
+export const changePassword = async (newPassword: string) => {
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (error) {
+    console.error('Error changing password:', error);
+    throw error;
+  }
 };

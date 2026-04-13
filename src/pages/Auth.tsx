@@ -48,77 +48,84 @@ export default function Auth() {
       } else {
         // Validação de campos obrigatórios
         if (!fullName.trim()) {
-          throw new Error('Nome completo é obrigatório');
+          throw new Error('Por favor, preencha seu nome completo.');
         }
         if (!crp.trim()) {
-          throw new Error('CRP é obrigatório');
+          throw new Error('Por favor, informe seu CRP.');
         }
 
         const normalizedEmail = email.trim().toLowerCase();
         const normalizedCrp = normalizeCrp(crp.trim());
 
-        const { data: conflictData, error: conflictError } = await supabase.rpc('check_profile_conflict', {
+        console.log('🔍 [Auth] Iniciando signup:', { normalizedEmail, normalizedCrp });
+
+        // Step 1: Check for conflicts using RPC
+        console.log('🔍 [Auth] Chamando RPC check_profile_conflict...');
+        const { data: conflictData, error: conflictError } = await (supabase.rpc as any)('check_profile_conflict', {
           p_email: normalizedEmail,
           p_crp: normalizedCrp,
         });
 
+        console.log('🔍 [Auth] Resultado RPC:', { conflictData, conflictError });
+
         if (conflictError) {
-          throw new Error('Não foi possível validar duplicidade de e-mail/CRP.');
+          console.error('❌ [Auth] Erro na RPC:', conflictError);
+          throw new Error('Não conseguimos validar os dados. Tente novamente em alguns segundos.');
         }
 
-        const conflict = Array.isArray(conflictData) ? conflictData[0] : conflictData;
+        // RPC returns array with single row containing email_exists and crp_exists
+        const conflict = Array.isArray(conflictData) && conflictData.length > 0 
+          ? conflictData[0] 
+          : {};
+        
+        console.log('🔍 [Auth] Verificando conflitos:', { 
+          email_exists: conflict?.email_exists, 
+          crp_exists: conflict?.crp_exists 
+        });
+
         if (conflict?.email_exists) {
-          throw new Error('Este e-mail já está cadastrado.');
+          console.warn('⚠️ [Auth] Email já existe:', normalizedEmail);
+          throw new Error('Este e-mail já tem uma conta cadastrada.');
         }
         if (conflict?.crp_exists) {
-          throw new Error('Este CRP já está cadastrado.');
+          console.warn('⚠️ [Auth] CRP já existe:', normalizedCrp);
+          throw new Error('Este CRP já tem uma conta cadastrada.');
         }
 
-        // Sign up com metadata
+        // Step 2: Create auth user
+        console.log('🔍 [Auth] Criando usuário de autenticação...');
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
           options: {
             data: { 
-              name: fullName, 
+              name: fullName.trim(), 
               crp: normalizedCrp,
             },
           },
         });
 
         if (signUpError) {
+          console.error('❌ [Auth] Erro ao fazer signup:', signUpError);
           if (signUpError.message?.toLowerCase().includes('already registered')) {
-            throw new Error('Este e-mail já está cadastrado.');
+            throw new Error('Este e-mail já tem uma conta cadastrada.');
           }
           throw signUpError;
         }
 
-        // Insert adicional em profiles como fallback
-        // (o trigger SQL fará isso automaticamente, mas como backup)
-        if (data.user) {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .upsert([
-              {
-                id: data.user.id,
-                email: normalizedEmail,
-                name: fullName.trim(),
-                crp: normalizedCrp,
-              }
-            ], { onConflict: 'id' });
+        console.log('✅ [Auth] Usuário criado com sucesso:', data.user?.id);
 
-          // Se der erro de duplicata, ignora (significa que o trigger já criou)
-          if (profileError && !profileError.message.includes('duplicate')) {
-            console.warn('Aviso ao criar perfil:', profileError);
-          }
-        }
+        // Step 3: Profile creation is handled automatically by SQL trigger
+        // No need to manually insert, as the trigger will create it
+        console.log('✅ [Auth] Perfil será criado automaticamente pelo trigger SQL');
 
+        console.log('✅ [Auth] Cadastro completado com sucesso!');
         toast({
           title: 'Cadastro realizado com sucesso! 🎉',
           description: 'Você será redirecionado para o login.',
         });
 
-        // Redirecionar para login após 2 segundos
+        // Limpar formulário
         setTimeout(() => {
           setIsLogin(true);
           setEmail('');
@@ -128,9 +135,22 @@ export default function Auth() {
         }, 2000);
       }
     } catch (error: any) {
+      let errorMessage = error.message || 'Ocorreu um erro desconhecido. Tente novamente.';
+      
+      // Traduzir e melhorar mensagens de erro técnicas
+      if (errorMessage.includes('Row-level security policy')) {
+        errorMessage = 'Erro ao criar perfil. Por favor, contate o suporte.';
+      } else if (errorMessage.includes('already registered')) {
+        errorMessage = 'Este e-mail já está cadastrado.';
+      } else if (errorMessage.includes('password should be at least')) {
+        errorMessage = 'A senha deve ter pelo menos 6 caracteres.';
+      } else if (errorMessage.includes('invalid email')) {
+        errorMessage = 'E-mail inválido. Verifique e tente novamente.';
+      }
+
       toast({
         title: 'Erro no cadastro',
-        description: error.message || 'Ocorreu um erro. Tente novamente.',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {

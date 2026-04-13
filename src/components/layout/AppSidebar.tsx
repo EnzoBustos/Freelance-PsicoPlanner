@@ -13,21 +13,52 @@ const navItems = [
   { title: 'Configurações', url: '/configuracoes', icon: Settings },
 ];
 
+// Helper function to get initials from name
+const getInitials = (name: string): string => {
+  if (!name || name.trim() === '') return 'PP';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+// Helper function to get a consistent color based on name
+const getAvatarColor = (name: string): string => {
+  const colors = [
+    'bg-blue-500/20 text-blue-600',
+    'bg-purple-500/20 text-purple-600',
+    'bg-pink-500/20 text-pink-600',
+    'bg-emerald-500/20 text-emerald-600',
+    'bg-orange-500/20 text-orange-600',
+    'bg-indigo-500/20 text-indigo-600',
+  ];
+  
+  if (!name) return colors[0];
+  const hash = name.charCodeAt(0) + name.charCodeAt(name.length - 1);
+  return colors[hash % colors.length];
+};
+
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const [profile, setProfile] = useState<{ name: string; crp: string } | null>(null);
+  const [avatarColor, setAvatarColor] = useState('bg-primary/20 text-primary');
+  const [avatarInitials, setAvatarInitials] = useState('PP');
 
   useEffect(() => {
     const loadProfile = async () => {
       try {
         const data = await fetchPsychologistProfile();
         if (data) {
+          const name = data.name ?? 'Profissional';
           setProfile({
-            name: data.name ?? 'Profissional',
+            name: name,
             crp: data.crp ?? '-',
           });
+          setAvatarInitials(getInitials(name));
+          setAvatarColor(getAvatarColor(name));
         }
       } catch (error) {
         console.error('Erro ao carregar perfil:', error);
@@ -35,6 +66,10 @@ export function AppSidebar() {
     };
 
     loadProfile();
+
+    // Listen for profile updates from settings page
+    window.addEventListener('profileUpdated', loadProfile);
+    return () => window.removeEventListener('profileUpdated', loadProfile);
   }, []);
 
   const handleLogout = async () => {
@@ -82,8 +117,8 @@ export function AppSidebar() {
       {/* Footer */}
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
-            CR
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold ${avatarColor}`}>
+            {avatarInitials}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground truncate">{profile?.name ?? 'Carregando...'}</p>

@@ -1,19 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Plus, Video, MapPin, Loader } from 'lucide-react';
 import { getStatusBadgeClass, getStatusLabel, formatCurrency } from '@/data/mockData';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import type { Session } from '@/data/mockData';
-import { fetchSessions } from '@/services/supabaseQueries';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
+import type { Patient, Session } from '@/data/mockData';
+import {
+  createAgendaSession,
+  fetchPatients,
+  fetchPsychologistProfile,
+  fetchSchedulePreferences,
+  fetchSessions,
+  updateAgendaSession,
+} from '@/services/supabaseQueries';
 
-const hours = Array.from({ length: 12 }, (_, i) => `${(i + 7).toString().padStart(2, '0')}:00`);
 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+interface SchedulePreference {
+  dayOfWeek: number;
+  isActive: boolean;
+  startTime: string | null;
+  endTime: string | null;
+}
 
 function getWeekDates(baseDate: Date) {
   const start = new Date(baseDate);
-  start.setDate(start.getDate() - start.getDay() + 1); // Monday
+  const day = start.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diffToMonday); // Monday
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(start);
     d.setDate(d.getDate() + i);
@@ -29,18 +53,124 @@ const sessionColors: Record<string, string> = {
   cancelada: 'bg-muted border-border text-muted-foreground',
 };
 
+const getTodayDate = () => {
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return localDate.toISOString().split('T')[0];
+};
+
+const toLocalISODate = (date: Date) => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().split('T')[0];
+};
+
+const toMinutes = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+const buildHourSlots = (scheduleMap: Record<number, SchedulePreference>) => {
+  const activeDays = Object.values(scheduleMap).filter(
+    (day) => day.isActive && day.startTime && day.endTime
+  );
+
+  if (activeDays.length === 0) {
+    return Array.from({ length: 12 }, (_, i) => `${(i + 7).toString().padStart(2, '0')}:00`);
+  }
+
+  const minStartHour = Math.min(
+    ...activeDays.map((day) => Number(day.startTime!.slice(0, 2)))
+  );
+  const maxEndHour = Math.max(
+    ...activeDays.map((day) => Number(day.endTime!.slice(0, 2)))
+  );
+
+  const totalHours = Math.max(1, maxEndHour - minStartHour);
+  return Array.from({ length: totalHours }, (_, i) => `${String(minStartHour + i).padStart(2, '0')}:00`);
+};
+
+const isWithinDayAvailability = (
+  scheduleDay: SchedulePreference | undefined,
+  time: string
+) => {
+  if (!scheduleDay || !scheduleDay.isActive || !scheduleDay.startTime || !scheduleDay.endTime) {
+    return false;
+  }
+
+  const target = toMinutes(time.slice(0, 5));
+  const start = toMinutes(scheduleDay.startTime.slice(0, 5));
+  const end = toMinutes(scheduleDay.endTime.slice(0, 5));
+  return target >= start && target < end;
+};
+
+const getDayIndexFromDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day).getDay();
+};
+
 export default function Agenda() {
+  const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [savingSessionAction, setSavingSessionAction] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState({
+    date: getTodayDate(),
+    startTime: '08:00',
+  });
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [savingSession, setSavingSession] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [scheduleMap, setScheduleMap] = useState<Record<number, SchedulePreference>>({});
+  const [defaultSessionDuration, setDefaultSessionDuration] = useState(50);
+  const [defaultSessionValue, setDefaultSessionValue] = useState(250);
+  const [newSessionForm, setNewSessionForm] = useState({
+    patientId: '',
+    date: getTodayDate(),
+    startTime: '08:00',
+    duration: 50,
+    type: 'presencial' as 'presencial' | 'online',
+    status: 'pendente' as 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta',
+    value: 250,
+  });
   const [loading, setLoading] = useState(true);
   const weekDates = getWeekDates(currentDate);
+  const hours = useMemo(() => buildHourSlots(scheduleMap), [scheduleMap]);
 
   useEffect(() => {
-    const loadSessions = async () => {
+    const loadAgendaData = async () => {
       try {
-        const data = await fetchSessions();
-        setSessions(data);
+        const [sessionsData, patientsData, profileData] = await Promise.all([
+          fetchSessions(),
+          fetchPatients(),
+          fetchPsychologistProfile().catch(() => null),
+        ]);
+
+        const scheduleData = await fetchSchedulePreferences().catch(() => []);
+        const scheduleByDay = scheduleData.reduce<Record<number, SchedulePreference>>((acc, day) => {
+          acc[day.dayOfWeek] = {
+            dayOfWeek: day.dayOfWeek,
+            isActive: day.isActive,
+            startTime: day.startTime,
+            endTime: day.endTime,
+          };
+          return acc;
+        }, {});
+
+        const profileDuration = Number(profileData?.default_session_duration ?? 50);
+        const profileValue = Number(profileData?.default_session_value ?? 250);
+
+        setSessions(sessionsData);
+        setPatients(patientsData);
+        setScheduleMap(scheduleByDay);
+        setDefaultSessionDuration(profileDuration > 0 ? profileDuration : 50);
+        setDefaultSessionValue(profileValue > 0 ? profileValue : 250);
+        setNewSessionForm((prev) => ({
+          ...prev,
+          duration: profileDuration > 0 ? profileDuration : 50,
+          value: profileValue > 0 ? profileValue : 250,
+        }));
       } catch (error) {
         console.error('Erro ao carregar sessões:', error);
       } finally {
@@ -48,18 +178,188 @@ export default function Agenda() {
       }
     };
 
-    loadSessions();
+    loadAgendaData();
   }, []);
 
   const prevWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 7); setCurrentDate(d); };
   const nextWeek = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 7); setCurrentDate(d); };
   const goToday = () => setCurrentDate(new Date());
 
+  const selectedPatient = useMemo(
+    () => patients.find((p) => p.id === newSessionForm.patientId) || null,
+    [patients, newSessionForm.patientId]
+  );
+
+  const resetNewSessionForm = () => {
+    setNewSessionForm({
+      patientId: '',
+      date: getTodayDate(),
+      startTime: '08:00',
+      duration: defaultSessionDuration,
+      type: 'presencial',
+      status: 'pendente',
+      value: defaultSessionValue,
+    });
+  };
+
+  const handleCreateSession = async () => {
+    if (!newSessionForm.patientId) {
+      toast({
+        title: 'Paciente obrigatório',
+        description: 'Selecione um paciente para criar a sessão.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!newSessionForm.date || !newSessionForm.startTime) {
+      toast({
+        title: 'Data e horário obrigatórios',
+        description: 'Informe a data e o horário da sessão.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (newSessionForm.duration <= 0) {
+      toast({
+        title: 'Duração inválida',
+        description: 'A duração da sessão deve ser maior que zero.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const selectedDayIndex = getDayIndexFromDate(newSessionForm.date);
+    const scheduleDay = scheduleMap[selectedDayIndex];
+    if (!isWithinDayAvailability(scheduleDay, newSessionForm.startTime)) {
+      toast({
+        title: 'Horário indisponível',
+        description: 'Este dia/horário está fora da agenda de atendimento definida pelo psicólogo.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSavingSession(true);
+
+      const patient = patients.find((p) => p.id === newSessionForm.patientId);
+      if (!patient) {
+        throw new Error('Paciente selecionado não encontrado.');
+      }
+
+      const createdSession = await createAgendaSession({
+        patientId: patient.id,
+        patientName: patient.name,
+        date: newSessionForm.date,
+        startTime: newSessionForm.startTime,
+        duration: newSessionForm.duration,
+        type: newSessionForm.type,
+        status: newSessionForm.status,
+        value: newSessionForm.value,
+      });
+
+      setSessions((prev) => [createdSession, ...prev]);
+      setNewSessionOpen(false);
+      resetNewSessionForm();
+
+      toast({
+        title: 'Sessão criada com sucesso! ✅',
+        description: `${patient.name} em ${newSessionForm.date.split('-').reverse().join('/')} às ${newSessionForm.startTime}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao criar sessão',
+        description: error?.message ?? 'Não foi possível criar a sessão.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSession(false);
+    }
+  };
+
+  const syncUpdatedSession = (updated: Session) => {
+    setSessions((prev) => prev.map((session) => (session.id === updated.id ? updated : session)));
+    setSelectedSession(updated);
+  };
+
+  const handleConfirmSession = async () => {
+    if (!selectedSession) return;
+
+    try {
+      setSavingSessionAction(true);
+      const updated = await updateAgendaSession(selectedSession.id, { status: 'confirmada' });
+      syncUpdatedSession(updated);
+      toast({ title: 'Sessão confirmada! ✅' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao confirmar sessão',
+        description: error?.message ?? 'Não foi possível confirmar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSessionAction(false);
+    }
+  };
+
+  const handleNoShowSession = async () => {
+    if (!selectedSession) return;
+
+    try {
+      setSavingSessionAction(true);
+      const updated = await updateAgendaSession(selectedSession.id, { status: 'falta' });
+      syncUpdatedSession(updated);
+      toast({ title: 'Sessão marcada como falta.' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao marcar falta',
+        description: error?.message ?? 'Não foi possível atualizar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSessionAction(false);
+    }
+  };
+
+  const openRescheduleDialog = () => {
+    if (!selectedSession) return;
+    setRescheduleForm({
+      date: selectedSession.date,
+      startTime: selectedSession.startTime,
+    });
+    setRescheduleOpen(true);
+  };
+
+  const handleRescheduleSession = async () => {
+    if (!selectedSession) return;
+
+    try {
+      setSavingSessionAction(true);
+      const updated = await updateAgendaSession(selectedSession.id, {
+        date: rescheduleForm.date,
+        startTime: rescheduleForm.startTime,
+        status: 'pendente',
+      });
+      syncUpdatedSession(updated);
+      setRescheduleOpen(false);
+      toast({ title: 'Sessão remarcada com sucesso! ✅' });
+    } catch (error: any) {
+      toast({
+        title: 'Erro ao remarcar sessão',
+        description: error?.message ?? 'Não foi possível remarcar.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingSessionAction(false);
+    }
+  };
+
   const formatDayHeader = (d: Date) => ({
     day: weekDays[d.getDay()],
     date: d.getDate(),
     isToday: d.toDateString() === new Date().toDateString(),
-    dateStr: d.toISOString().split('T')[0],
+    dateStr: toLocalISODate(d),
   });
 
   const monthYear = currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -90,7 +390,13 @@ export default function Agenda() {
           </button>
           <h2 className="text-lg font-semibold text-foreground capitalize ml-2">{monthYear}</h2>
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+          onClick={() => {
+            resetNewSessionForm();
+            setNewSessionOpen(true);
+          }}
+        >
           <Plus className="w-4 h-4" /> Nova Sessão
         </Button>
       </div>
@@ -102,8 +408,15 @@ export default function Agenda() {
           <div className="p-3" />
           {weekDates.map(d => {
             const { day, date, isToday } = formatDayHeader(d);
+            const daySchedule = scheduleMap[d.getDay()];
+            const isUnavailableDay = !daySchedule?.isActive;
             return (
-              <div key={d.toISOString()} className={`p-3 text-center border-l border-border ${isToday ? 'bg-primary/5' : ''}`}>
+              <div
+                key={d.toISOString()}
+                className={`p-3 text-center border-l border-border ${
+                  isUnavailableDay ? 'bg-muted/40' : isToday ? 'bg-primary/5' : ''
+                }`}
+              >
                 <p className="text-xs text-muted-foreground">{day}</p>
                 <p className={`text-lg font-semibold ${isToday ? 'text-primary' : 'text-foreground'}`}>{date}</p>
               </div>
@@ -117,11 +430,25 @@ export default function Agenda() {
             <div key={hour} className="grid grid-cols-[60px_repeat(7,1fr)] min-h-[60px] border-b border-border/50">
               <div className="p-2 text-xs text-muted-foreground text-right pr-3 pt-1">{hour}</div>
               {weekDates.map(d => {
-                const dateStr = d.toISOString().split('T')[0];
-                const slotSessions = sessions.filter(s => s.date === dateStr && s.startTime === hour);
+                const dateStr = toLocalISODate(d);
+                const daySchedule = scheduleMap[d.getDay()];
+                const isUnavailableDay = !daySchedule?.isActive;
+                const isAvailableSlot = isWithinDayAvailability(daySchedule, hour);
+                const slotSessions = sessions.filter(
+                  (s) => s.date === dateStr && s.startTime.slice(0, 2) === hour.slice(0, 2)
+                );
                 const isToday = d.toDateString() === new Date().toDateString();
                 return (
-                  <div key={d.toISOString()} className={`border-l border-border/50 p-1 ${isToday ? 'bg-primary/5' : ''}`}>
+                  <div
+                    key={d.toISOString()}
+                    className={`border-l border-border/50 p-1 ${
+                      isUnavailableDay || !isAvailableSlot
+                        ? 'bg-muted/50'
+                        : isToday
+                          ? 'bg-primary/5'
+                          : ''
+                    }`}
+                  >
                     {slotSessions.map(s => (
                       <button
                         key={s.id}
@@ -132,6 +459,9 @@ export default function Agenda() {
                         <p className="opacity-70">{s.startTime} · {s.duration}min</p>
                       </button>
                     ))}
+                    {(isUnavailableDay || !isAvailableSlot) && slotSessions.length === 0 && (
+                      <div className="w-full h-full min-h-[40px]" />
+                    )}
                   </div>
                 );
               })}
@@ -177,12 +507,219 @@ export default function Agenda() {
                 </div>
               )}
               <div className="flex gap-2 pt-2">
-                <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1">Confirmar</Button>
-                <Button size="sm" variant="outline" className="flex-1 border-border text-foreground hover:bg-secondary">Remarcar</Button>
-                <Button size="sm" variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive/10">Falta</Button>
+                <Button
+                  size="sm"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1"
+                  onClick={handleConfirmSession}
+                  disabled={savingSessionAction}
+                >
+                  Confirmar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 border-border text-foreground hover:bg-secondary"
+                  onClick={openRescheduleDialog}
+                  disabled={savingSessionAction}
+                >
+                  Remarcar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                  onClick={handleNoShowSession}
+                  disabled={savingSessionAction}
+                >
+                  Falta
+                </Button>
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Remarcar sessão</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Nova data</label>
+              <Input
+                type="date"
+                value={rescheduleForm.date}
+                onChange={(e) => setRescheduleForm((prev) => ({ ...prev, date: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={savingSessionAction}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Novo horário</label>
+              <Input
+                type="time"
+                value={rescheduleForm.startTime}
+                onChange={(e) => setRescheduleForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                className="bg-secondary border-border"
+                disabled={savingSessionAction}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRescheduleOpen(false)} disabled={savingSessionAction}>
+                Cancelar
+              </Button>
+              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleRescheduleSession} disabled={savingSessionAction}>
+                {savingSessionAction ? 'Salvando...' : 'Salvar remarcação'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={newSessionOpen} onOpenChange={setNewSessionOpen}>
+        <DialogContent className="bg-card border-border max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Nova Sessão</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Paciente</label>
+              <Select
+                value={newSessionForm.patientId || undefined}
+                onValueChange={(value) => {
+                  const patient = patients.find((p) => p.id === value);
+                  setNewSessionForm((prev) => ({
+                    ...prev,
+                    patientId: value,
+                    value: patient?.sessionValue ?? defaultSessionValue,
+                  }));
+                }}
+                disabled={savingSession}
+              >
+                <SelectTrigger className="bg-secondary border-border">
+                  <SelectValue placeholder="Selecione um paciente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {patients.map((patient) => (
+                    <SelectItem key={patient.id} value={patient.id}>
+                      {patient.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Data</label>
+                <Input
+                  type="date"
+                  value={newSessionForm.date}
+                  onChange={(e) => setNewSessionForm((prev) => ({ ...prev, date: e.target.value }))}
+                  className="bg-secondary border-border"
+                  disabled={savingSession}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Horário</label>
+                <Input
+                  type="time"
+                  value={newSessionForm.startTime}
+                  onChange={(e) => setNewSessionForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                  className="bg-secondary border-border"
+                  disabled={savingSession}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Duração (min)</label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="5"
+                  value={newSessionForm.duration}
+                  onChange={(e) => setNewSessionForm((prev) => ({ ...prev, duration: Number(e.target.value) || 0 }))}
+                  className="bg-secondary border-border"
+                  disabled={savingSession}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Padrão da terapeuta: {defaultSessionDuration} min
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Tipo</label>
+                <Select
+                  value={newSessionForm.type}
+                  onValueChange={(value) => setNewSessionForm((prev) => ({ ...prev, type: value as 'presencial' | 'online' }))}
+                  disabled={savingSession}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="presencial">Presencial</SelectItem>
+                    <SelectItem value="online">Online</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Status</label>
+                <Select
+                  value={newSessionForm.status}
+                  onValueChange={(value) =>
+                    setNewSessionForm((prev) => ({
+                      ...prev,
+                      status: value as 'confirmada' | 'pendente' | 'cancelada' | 'realizada' | 'falta',
+                    }))
+                  }
+                  disabled={savingSession}
+                >
+                  <SelectTrigger className="bg-secondary border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="confirmada">Confirmada</SelectItem>
+                    <SelectItem value="pendente">Pendente</SelectItem>
+                    <SelectItem value="realizada">Realizada</SelectItem>
+                    <SelectItem value="cancelada">Cancelada</SelectItem>
+                    <SelectItem value="falta">Falta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Valor (R$)</label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={newSessionForm.value}
+                onChange={(e) => setNewSessionForm((prev) => ({ ...prev, value: Number(e.target.value) || 0 }))}
+                className="bg-secondary border-border"
+                disabled={savingSession}
+              />
+              {selectedPatient && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Valor padrão do paciente: R$ {selectedPatient.sessionValue.toFixed(2).replace('.', ',')}
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setNewSessionOpen(false)} disabled={savingSession}>
+                Cancelar
+              </Button>
+              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleCreateSession} disabled={savingSession}>
+                {savingSession ? 'Salvando...' : 'Criar Sessão'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </AppLayout>

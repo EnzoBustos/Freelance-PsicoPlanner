@@ -2,9 +2,37 @@ import { Bell } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchClinicalAlerts, fetchPsychologistProfile } from '@/services/supabaseQueries';
 
+// Helper function to get initials from name
+const getInitials = (name: string): string => {
+  if (!name || name.trim() === '') return 'PP';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+// Helper function to get a consistent color based on name
+const getAvatarColor = (name: string): string => {
+  const colors = [
+    'bg-blue-500/20 text-blue-600',
+    'bg-purple-500/20 text-purple-600',
+    'bg-pink-500/20 text-pink-600',
+    'bg-emerald-500/20 text-emerald-600',
+    'bg-orange-500/20 text-orange-600',
+    'bg-indigo-500/20 text-indigo-600',
+  ];
+  
+  if (!name) return colors[0];
+  const hash = name.charCodeAt(0) + name.charCodeAt(name.length - 1);
+  return colors[hash % colors.length];
+};
+
 export function Topbar({ title }: { title: string }) {
   const [alertsCount, setAlertsCount] = useState(0);
-  const [profileName, setProfileName] = useState('Profissional');
+  const [profileName, setProfileName] = useState('Carregando...');
+  const [profileInitials, setProfileInitials] = useState('PP');
+  const [avatarColor, setAvatarColor] = useState('bg-primary/20 text-primary');
 
   useEffect(() => {
     const loadData = async () => {
@@ -16,6 +44,9 @@ export function Topbar({ title }: { title: string }) {
         setAlertsCount(alerts.length);
         if (profile?.name) {
           setProfileName(profile.name);
+          const initials = getInitials(profile.name);
+          setProfileInitials(initials);
+          setAvatarColor(getAvatarColor(profile.name));
         }
       } catch (error) {
         console.error('Erro ao carregar topbar:', error);
@@ -23,6 +54,10 @@ export function Topbar({ title }: { title: string }) {
     };
 
     loadData();
+
+    // Listen for profile updates from settings page
+    window.addEventListener('profileUpdated', loadData);
+    return () => window.removeEventListener('profileUpdated', loadData);
   }, []);
 
   const today = new Date().toLocaleDateString('pt-BR', {
@@ -43,8 +78,8 @@ export function Topbar({ title }: { title: string }) {
           )}
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
-            CR
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${avatarColor}`}>
+            {profileInitials}
           </div>
           <span className="text-sm font-medium text-foreground hidden md:block">{profileName}</span>
         </div>
