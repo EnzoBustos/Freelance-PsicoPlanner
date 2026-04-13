@@ -42,7 +42,8 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const normalizedEmail = email.trim().toLowerCase();
+        const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
         navigate('/');
       } else {
@@ -146,10 +147,14 @@ export default function Auth() {
         errorMessage = 'A senha deve ter pelo menos 6 caracteres.';
       } else if (errorMessage.includes('invalid email')) {
         errorMessage = 'E-mail inválido. Verifique e tente novamente.';
+      } else if (errorMessage.toLowerCase().includes('invalid login credentials')) {
+        errorMessage = 'E-mail ou senha inválidos.';
+      } else if (errorMessage.toLowerCase().includes('email not confirmed')) {
+        errorMessage = 'Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada.';
       }
 
       toast({
-        title: 'Erro no cadastro',
+        title: isLogin ? 'Erro no login' : 'Erro no cadastro',
         description: errorMessage,
         variant: 'destructive',
       });
