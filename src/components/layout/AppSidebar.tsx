@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Calendar, DollarSign, Settings, LogOut, Flower2 } from 'lucide-react';
+import { BrainCircuit, LayoutDashboard, Users, Calendar, DollarSign, Settings, LogOut } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -82,8 +82,8 @@ export function AppSidebar() {
     <aside className="w-64 min-h-screen bg-sidebar flex flex-col border-r border-sidebar-border shrink-0">
       {/* Logo */}
       <div className="p-6 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-          <Flower2 className="w-6 h-6 text-primary" />
+        <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center border border-border/60">
+          <BrainCircuit className="w-6 h-6 text-primary" />
         </div>
         <span className="text-xl font-bold text-foreground tracking-tight">PsicoPlanner</span>
       </div>

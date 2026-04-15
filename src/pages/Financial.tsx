@@ -114,7 +114,7 @@ export default function Financial() {
                 contentStyle={{ backgroundColor: 'hsl(240 4% 16%)', border: '1px solid hsl(240 4% 22%)', borderRadius: 8, color: 'hsl(240 5% 96%)' }}
                 formatter={(value: number) => [formatCurrency(value), 'Receita']}
               />
-              <Bar dataKey="receita" fill="hsl(330 81% 60%)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="receita" fill="hsl(270 76% 62%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </motion.div>

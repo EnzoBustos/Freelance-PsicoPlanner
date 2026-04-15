@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { Eye, EyeOff, Flower2 } from 'lucide-react';
+import { BrainCircuit, Eye, EyeOff } from 'lucide-react';
 
 export default function Auth() {
   const { session, loading } = useAuth();
@@ -172,8 +172,8 @@ export default function Auth() {
       >
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/15 mb-4">
-            <Flower2 className="w-8 h-8 text-primary" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/20 mb-4 border border-border/60">
+            <BrainCircuit className="w-8 h-8 text-primary" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">PsicoPlanner</h1>
           <p className="text-sm text-muted-foreground mt-1">

@@ -6,25 +6,25 @@
 
 @layer base {
   :root {
-    --background: 240 6% 10%;
-    --foreground: 240 5% 96%;
+    --background: 250 22% 11%;
+    --foreground: 250 28% 96%;
 
-    --card: 240 4% 16%;
-    --card-foreground: 240 5% 96%;
+    --card: 250 18% 15%;
+    --card-foreground: 250 28% 96%;
 
-    --popover: 240 4% 16%;
-    --popover-foreground: 240 5% 96%;
+    --popover: 250 18% 15%;
+    --popover-foreground: 250 28% 96%;
 
-    --primary: 330 81% 60%;
+    --primary: 270 76% 68%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 4% 20%;
-    --secondary-foreground: 240 5% 96%;
+    --secondary: 250 16% 19%;
+    --secondary-foreground: 250 28% 96%;
 
-    --muted: 240 4% 20%;
-    --muted-foreground: 240 5% 58%;
+    --muted: 250 16% 19%;
+    --muted-foreground: 250 12% 67%;
 
-    --accent: 330 81% 60%;
+    --accent: 272 68% 64%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
@@ -41,18 +41,18 @@
 
     --border: 240 4% 22%;
     --input: 240 4% 20%;
-    --ring: 330 81% 60%;
+    --ring: 270 76% 68%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 240 6% 7%;
-    --sidebar-foreground: 240 5% 65%;
-    --sidebar-primary: 330 81% 60%;
+    --sidebar-background: 250 28% 8%;
+    --sidebar-foreground: 250 16% 68%;
+    --sidebar-primary: 270 76% 68%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4% 14%;
-    --sidebar-accent-foreground: 240 5% 96%;
-    --sidebar-border: 240 4% 16%;
-    --sidebar-ring: 330 81% 60%;
+    --sidebar-accent: 250 18% 13%;
+    --sidebar-accent-foreground: 250 28% 96%;
+    --sidebar-border: 250 18% 15%;
+    --sidebar-ring: 270 76% 68%;
   }
 }
 
@@ -63,13 +63,17 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    background:
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.12), transparent 28%),
+      radial-gradient(circle at bottom right, hsl(var(--accent) / 0.08), transparent 24%),
+      hsl(var(--background));
     font-family: 'Inter', sans-serif;
   }
 }
 
 @layer utilities {
   .glass-card {
-    @apply bg-card border border-border rounded-xl backdrop-blur-sm;
+    @apply bg-card border border-border rounded-xl backdrop-blur-sm shadow-[0_0_0_1px_hsl(var(--border)/0.35),0_20px_60px_hsl(250_60%_3%/0.18)];
   }
 
   .badge-success {
@@ -87,5 +91,12 @@
 
   .transition-smooth {
     @apply transition-all duration-200 ease-in-out;
+  }
+
+  .surface-gradient {
+    background:
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.14), transparent 28%),
+      radial-gradient(circle at bottom right, hsl(var(--accent) / 0.10), transparent 26%),
+      hsl(var(--background));
   }
 }
