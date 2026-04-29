@@ -284,11 +284,9 @@ export default function Agenda() {
 
     if (invalidDate) {
       toast({
-        title: 'Horário indisponível',
-        description: 'Uma das consultas recorrentes cai fora da agenda de atendimento definida pelo psicólogo.',
-        variant: 'destructive',
+        title: 'Atenção',
+        description: 'Este horário está fora do seu horário de atendimento marcado.',
       });
-      return;
     }
 
     try {
