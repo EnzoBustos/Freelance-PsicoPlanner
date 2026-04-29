@@ -1,3 +1,5 @@
+import { toISODateInBrazil } from '@/lib/dateTime';
+
 export interface Patient {
   id: string;
   name: string;
@@ -72,7 +74,7 @@ export interface ClinicalAlert {
 }
 
 const today = new Date();
-const formatDate = (d: Date) => d.toISOString().split('T')[0];
+const formatDate = (d: Date) => toISODateInBrazil(d);
 const daysAgo = (n: number) => { const d = new Date(today); d.setDate(d.getDate() - n); return formatDate(d); };
 const daysFromNow = (n: number) => { const d = new Date(today); d.setDate(d.getDate() + n); return formatDate(d); };
 

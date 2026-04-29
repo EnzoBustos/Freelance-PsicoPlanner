@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { formatDateInBrazil, getTodayISODateInBrazil } from '@/lib/dateTime';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -58,12 +59,6 @@ const calculateAge = (birthDate: string) => {
   return age < 0 ? 0 : age;
 };
 
-const getTodayDate = () => {
-  const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return localDate.toISOString().split('T')[0];
-};
-
 export default function PatientDetail() {
   const { toast } = useToast();
   const { id } = useParams();
@@ -86,14 +81,14 @@ export default function PatientDetail() {
   const [downloadingDocumentName, setDownloadingDocumentName] = useState<string | null>(null);
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
   const [newSessionForm, setNewSessionForm] = useState({
-    date: getTodayDate(),
+    date: getTodayISODateInBrazil(),
     value: 0,
     paymentMethod: '',
     paymentStatus: 'pendente' as 'pago' | 'pendente',
   });
   const [paymentMethod, setPaymentMethod] = useState('PIX');
   const [newEvolutionForm, setNewEvolutionForm] = useState({
-    date: getTodayDate(),
+    date: getTodayISODateInBrazil(),
     note: '',
   });
   const [profileForm, setProfileForm] = useState({
@@ -232,7 +227,7 @@ export default function PatientDetail() {
       setTransactions((prev) => [transaction, ...prev]);
       setNewSessionOpen(false);
       setNewSessionForm({
-        date: getTodayDate(),
+        date: getTodayISODateInBrazil(),
         value: patient.sessionValue ?? 0,
         paymentMethod: '',
         paymentStatus: 'pendente',
@@ -474,7 +469,7 @@ export default function PatientDetail() {
       }));
 
       setNewEvolutionOpen(false);
-      setNewEvolutionForm({ date: getTodayDate(), note: '' });
+      setNewEvolutionForm({ date: getTodayISODateInBrazil(), note: '' });
 
       toast({
         title: 'Evolução criada com sucesso! ✅',
@@ -629,7 +624,7 @@ export default function PatientDetail() {
                 size="sm"
                 className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 onClick={() => {
-                  setNewEvolutionForm({ date: getTodayDate(), note: '' });
+                  setNewEvolutionForm({ date: getTodayISODateInBrazil(), note: '' });
                   setNewEvolutionOpen(true);
                 }}
               >
@@ -690,7 +685,7 @@ export default function PatientDetail() {
                 className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 onClick={() => {
                   setNewSessionForm({
-                    date: getTodayDate(),
+                    date: getTodayISODateInBrazil(),
                     value: patient.sessionValue ?? 0,
                     paymentMethod: '',
                     paymentStatus: 'pendente',
@@ -791,7 +786,7 @@ export default function PatientDetail() {
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">{doc.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      Arquivo · {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('pt-BR') : '—'}
+                      Arquivo · {doc.createdAt ? formatDateInBrazil(doc.createdAt) : '—'}
                     </p>
                   </div>
                   <Button

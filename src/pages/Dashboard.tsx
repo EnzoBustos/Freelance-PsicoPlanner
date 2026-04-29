@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { formatCurrency, formatDateBR, getStatusBadgeClass, getStatusLabel } from '@/data/mockData';
+import { getTodayISODateInBrazil } from '@/lib/dateTime';
 import type { Session, Patient, Transaction, ClinicalAlert } from '@/data/mockData';
 import { fetchClinicalAlerts, fetchPatients, fetchSessions, fetchTransactions } from '@/services/supabaseQueries';
 
@@ -45,7 +46,7 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayISODateInBrazil();
   const todaySessions = sessions.filter((s) => typeof s.date === 'string' && s.date.slice(0, 10) === today);
   const activePatients = patients.filter((p) => p.status === 'ativo').length;
   const monthRevenue = transactions.filter((t) => t.status === 'pago').reduce((sum, t) => sum + t.value, 0);

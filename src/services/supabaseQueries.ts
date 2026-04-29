@@ -5,6 +5,7 @@ import type {
   Transaction, 
   ClinicalAlert 
 } from '@/data/mockData';
+import { addDaysToISODate, addMonthsClampedToISODate } from '@/lib/dateTime';
 
 type RecurrencePattern = 'weekly' | 'biweekly' | 'monthly';
 
@@ -24,30 +25,16 @@ type AgendaRecurrenceInput = {
   count: number;
 };
 
-const addMonthsClamped = (date: Date, months: number) => {
-  const next = new Date(date);
-  const dayOfMonth = next.getDate();
-  next.setDate(1);
-  next.setMonth(next.getMonth() + months);
-  const daysInTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(dayOfMonth, daysInTargetMonth));
-  return next;
-};
-
 const buildRecurrenceDates = (startDate: string, recurrence: AgendaRecurrenceInput) => {
-  const baseDate = new Date(`${startDate}T00:00:00`);
-
   return Array.from({ length: recurrence.count }, (_, index) => {
     if (index === 0) return startDate;
 
     if (recurrence.pattern === 'monthly') {
-      return addMonthsClamped(baseDate, index).toISOString().split('T')[0];
+      return addMonthsClampedToISODate(startDate, index);
     }
 
     const stepDays = recurrence.pattern === 'weekly' ? 7 : 14;
-    const nextDate = new Date(baseDate);
-    nextDate.setDate(nextDate.getDate() + index * stepDays);
-    return nextDate.toISOString().split('T')[0];
+    return addDaysToISODate(startDate, index * stepDays);
   });
 };
 

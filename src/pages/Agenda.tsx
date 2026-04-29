@@ -14,6 +14,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import {
+  addDaysToISODate,
+  addMonthsClampedToISODate,
+  formatMonthYearInBrazil,
+  getTodayISODateInBrazil,
+  isSameBrazilDate,
+  toISODateInBrazil,
+} from '@/lib/dateTime';
 import type { Patient, Session } from '@/data/mockData';
 import {
   createAgendaSessions,
@@ -53,17 +61,6 @@ const sessionColors: Record<string, string> = {
   realizada: 'bg-success/20 border-success/40 text-success',
   falta: 'bg-destructive/20 border-destructive/40 text-destructive',
   cancelada: 'bg-muted border-border text-muted-foreground',
-};
-
-const getTodayDate = () => {
-  const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return localDate.toISOString().split('T')[0];
-};
-
-const toLocalISODate = (date: Date) => {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().split('T')[0];
 };
 
 const toMinutes = (time: string) => {
@@ -110,30 +107,16 @@ const getDayIndexFromDate = (dateStr: string) => {
   return new Date(year, month - 1, day).getDay();
 };
 
-const addMonthsClamped = (date: Date, months: number) => {
-  const next = new Date(date);
-  const dayOfMonth = next.getDate();
-  next.setDate(1);
-  next.setMonth(next.getMonth() + months);
-  const daysInTargetMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(dayOfMonth, daysInTargetMonth));
-  return next;
-};
-
 const buildRecurrenceDates = (startDate: string, pattern: Exclude<RecurrencePattern, 'none'>, count: number) => {
-  const baseDate = new Date(`${startDate}T00:00:00`);
-
   return Array.from({ length: count }, (_, index) => {
     if (index === 0) return startDate;
 
     if (pattern === 'monthly') {
-      return addMonthsClamped(baseDate, index).toISOString().split('T')[0];
+      return addMonthsClampedToISODate(startDate, index);
     }
 
     const stepDays = pattern === 'weekly' ? 7 : 14;
-    const nextDate = new Date(baseDate);
-    nextDate.setDate(nextDate.getDate() + index * stepDays);
-    return nextDate.toISOString().split('T')[0];
+    return addDaysToISODate(startDate, index * stepDays);
   });
 };
 
@@ -144,7 +127,7 @@ export default function Agenda() {
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [savingSessionAction, setSavingSessionAction] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState({
-    date: getTodayDate(),
+    date: getTodayISODateInBrazil(),
     startTime: '08:00',
   });
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -156,7 +139,7 @@ export default function Agenda() {
   const [defaultSessionValue, setDefaultSessionValue] = useState(250);
   const [newSessionForm, setNewSessionForm] = useState({
     patientId: '',
-    date: getTodayDate(),
+    date: getTodayISODateInBrazil(),
     startTime: '08:00',
     duration: 50,
     type: 'presencial' as 'presencial' | 'online',
@@ -237,7 +220,7 @@ export default function Agenda() {
   const resetNewSessionForm = () => {
     setNewSessionForm({
       patientId: '',
-      date: getTodayDate(),
+      date: getTodayISODateInBrazil(),
       startTime: '08:00',
       duration: defaultSessionDuration,
       type: 'presencial',
@@ -458,11 +441,11 @@ export default function Agenda() {
   const formatDayHeader = (d: Date) => ({
     day: weekDays[d.getDay()],
     date: d.getDate(),
-    isToday: d.toDateString() === new Date().toDateString(),
-    dateStr: toLocalISODate(d),
+    isToday: isSameBrazilDate(d, getTodayISODateInBrazil()),
+    dateStr: toISODateInBrazil(d),
   });
 
-  const monthYear = currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const monthYear = formatMonthYearInBrazil(currentDate);
 
   if (loading) {
     return (
@@ -530,14 +513,14 @@ export default function Agenda() {
             <div key={hour} className="grid grid-cols-[60px_repeat(7,1fr)] min-h-[60px] border-b border-border/50">
               <div className="p-2 text-xs text-muted-foreground text-right pr-3 pt-1">{hour}</div>
               {weekDates.map(d => {
-                const dateStr = toLocalISODate(d);
+                const dateStr = toISODateInBrazil(d);
                 const daySchedule = scheduleMap[d.getDay()];
                 const isUnavailableDay = !daySchedule?.isActive;
                 const isAvailableSlot = isWithinDayAvailability(daySchedule, hour);
                 const slotSessions = sessions.filter(
                   (s) => s.date === dateStr && s.startTime.slice(0, 2) === hour.slice(0, 2)
                 );
-                const isToday = d.toDateString() === new Date().toDateString();
+                const isToday = isSameBrazilDate(d, getTodayISODateInBrazil());
                 return (
                   <div
                     key={d.toISOString()}

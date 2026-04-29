@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { CalendarCheck, DollarSign, Users, AlertCircle, Clock, AlertTriangle, CreditCard, FileX, Loader } from 'lucide-react';
 import { fetchSessions, fetchPatients, fetchTransactions, fetchClinicalAlerts } from '@/services/supabaseQueries';
 import { formatCurrency, formatDateBR, getStatusBadgeClass, getStatusLabel } from '@/data/mockData';
+import { getTodayISODateInBrazil } from '@/lib/dateTime';
 import type { Session, Patient, Transaction, ClinicalAlert } from '@/data/mockData';
 
 export default function Dashboard() {
@@ -50,7 +51,7 @@ export default function Dashboard() {
     );
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayISODateInBrazil();
   const todaySessions = sessions.filter(s => s.date === today);
   const activePatients = patients.filter(p => p.status === 'ativo').length;
   const monthRevenue = transactions.filter(t => t.status === 'pago').reduce((sum, t) => sum + (t.value || 0), 0);

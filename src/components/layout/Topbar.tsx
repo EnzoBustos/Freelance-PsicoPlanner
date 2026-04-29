@@ -1,6 +1,7 @@
 import { Bell } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { formatReadableDateInBrazil } from '@/lib/dateTime';
 import { fetchClinicalAlerts, fetchPsychologistProfile, fetchSessions, fetchTransactions } from '@/services/supabaseQueries';
 
 interface TopbarNotification {
@@ -158,9 +159,7 @@ export function Topbar({ title }: { title: string }) {
     };
   }, []);
 
-  const today = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
+  const today = formatReadableDateInBrazil(new Date());
 
   return (
     <header className="h-16 border-b border-border bg-background/80 backdrop-blur-sm flex items-center justify-between px-8 shrink-0">
