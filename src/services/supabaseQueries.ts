@@ -667,14 +667,19 @@ export const updatePsychologistProfile = async (updates: any) => {
   
   if (!user) throw new Error('User not authenticated');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .update(updates)
-    .eq('id', user.id);
+    .eq('id', user.id)
+    .select('id');
 
   if (error) {
     console.error('Error updating profile:', error);
     throw error;
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Nenhum perfil foi atualizado. Verifique permissões e sessão ativa.');
   }
 };
 
@@ -697,6 +702,51 @@ export const fetchSchedulePreferences = async () => {
     throw error;
   }
 
+  // Ensure all users always have a complete weekly schedule baseline.
+  if (!data || data.length === 0) {
+    const defaultSchedule = [
+      { psychologist_id: user.id, day_of_week: 0, day_name: 'Domingo', is_active: false, start_time: null, end_time: null },
+      { psychologist_id: user.id, day_of_week: 1, day_name: 'Segunda', is_active: true, start_time: '08:00', end_time: '18:00' },
+      { psychologist_id: user.id, day_of_week: 2, day_name: 'Terça', is_active: true, start_time: '08:00', end_time: '18:00' },
+      { psychologist_id: user.id, day_of_week: 3, day_name: 'Quarta', is_active: true, start_time: '08:00', end_time: '18:00' },
+      { psychologist_id: user.id, day_of_week: 4, day_name: 'Quinta', is_active: true, start_time: '08:00', end_time: '18:00' },
+      { psychologist_id: user.id, day_of_week: 5, day_name: 'Sexta', is_active: true, start_time: '08:00', end_time: '16:00' },
+      { psychologist_id: user.id, day_of_week: 6, day_name: 'Sábado', is_active: false, start_time: null, end_time: null },
+    ];
+
+    const { error: insertError } = await supabase
+      .from('schedule_preferences')
+      .upsert(defaultSchedule, {
+        onConflict: 'psychologist_id,day_of_week',
+        ignoreDuplicates: true,
+      });
+
+    if (insertError) {
+      console.error('Error initializing schedule preferences:', insertError);
+      throw insertError;
+    }
+
+    const { data: reloadedData, error: reloadError } = await supabase
+      .from('schedule_preferences')
+      .select('*')
+      .eq('psychologist_id', user.id)
+      .order('day_of_week', { ascending: true });
+
+    if (reloadError) {
+      console.error('Error reloading schedule preferences:', reloadError);
+      throw reloadError;
+    }
+
+    return (reloadedData || []).map((item: any) => ({
+      id: item.id,
+      dayOfWeek: item.day_of_week,
+      dayName: item.day_name,
+      isActive: item.is_active,
+      startTime: item.start_time,
+      endTime: item.end_time,
+    }));
+  }
+
   return (data || []).map((item: any) => ({
     id: item.id,
     dayOfWeek: item.day_of_week,
@@ -715,18 +765,28 @@ export const updateSchedulePreference = async (scheduleId: string, updates: {
   startTime?: string | null;
   endTime?: string | null;
 }) => {
-  const { error } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
     .from('schedule_preferences')
     .update({
       is_active: updates.isActive,
       start_time: updates.startTime,
       end_time: updates.endTime,
     })
-    .eq('id', scheduleId);
+    .eq('id', scheduleId)
+    .eq('psychologist_id', user.id)
+    .select('id');
 
   if (error) {
     console.error('Error updating schedule preference:', error);
     throw error;
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Nenhum horário foi atualizado. Recarregue a página e tente novamente.');
   }
 };
 
@@ -739,14 +799,23 @@ export const updateNotificationPreferences = async (preferences: {
   notification_pending_payment: boolean;
   notification_missing_evolution: boolean;
 }) => {
-  const { error } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) throw new Error('User not authenticated');
+
+  const { data, error } = await supabase
     .from('profiles')
     .update(preferences)
-    .eq('id', (await supabase.auth.getUser()).data.user?.id);
+    .eq('id', user.id)
+    .select('id');
 
   if (error) {
     console.error('Error updating notification preferences:', error);
     throw error;
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Nenhuma preferência de notificação foi atualizada.');
   }
 };
 

@@ -61,7 +61,6 @@ export default function SettingsPage() {
     notification_missing_evolution: true,
   });
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
-  const [originalSchedule, setOriginalSchedule] = useState<ScheduleDay[]>([]);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -105,7 +104,6 @@ export default function SettingsPage() {
       try {
         const data = await fetchSchedulePreferences();
         setSchedule(data);
-        setOriginalSchedule(JSON.parse(JSON.stringify(data))); // Deep copy
       } catch (error: any) {
         console.error('Erro ao carregar horários:', error);
         // Set default schedule if fetch fails
@@ -119,7 +117,6 @@ export default function SettingsPage() {
           { id: '7', dayOfWeek: 6, dayName: 'Sábado', isActive: false, startTime: null, endTime: null },
         ];
         setSchedule(defaultSchedule);
-        setOriginalSchedule(defaultSchedule);
       } finally {
         setLoadingSchedule(false);
       }
@@ -165,34 +162,24 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveScheduleDay = async (daySchedule: ScheduleDay) => {
-    try {
-      setSavingSchedule(true);
-      
-      await updateSchedulePreference(daySchedule.id, {
-        isActive: daySchedule.isActive,
-        startTime: daySchedule.isActive ? daySchedule.startTime : null,
-        endTime: daySchedule.isActive ? daySchedule.endTime : null,
-      });
+  const handleSaveAllSchedule = async () => {
+    const invalidDay = schedule.find(
+      (day) =>
+        day.isActive &&
+        day.startTime &&
+        day.endTime &&
+        day.startTime >= day.endTime
+    );
 
+    if (invalidDay) {
       toast({
-        title: `${daySchedule.dayName} atualizado com sucesso! ✅`,
-        description: daySchedule.isActive 
-          ? `${daySchedule.startTime} às ${daySchedule.endTime}`
-          : 'Dia marcado como fechado',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Erro ao salvar horário',
-        description: error?.message ?? 'Não foi possível salvar.',
+        title: 'Horário inválido',
+        description: `Em ${invalidDay.dayName}, o horário inicial deve ser menor que o final.`,
         variant: 'destructive',
       });
-    } finally {
-      setSavingSchedule(false);
+      return;
     }
-  };
 
-  const handleSaveAllSchedule = async () => {
     try {
       setSavingSchedule(true);
       
@@ -206,9 +193,6 @@ export default function SettingsPage() {
       );
 
       await Promise.all(promises);
-      
-      // Update original schedule to track changes
-      setOriginalSchedule(JSON.parse(JSON.stringify(schedule)));
 
       toast({
         title: 'Agenda atualizada com sucesso! ✅',

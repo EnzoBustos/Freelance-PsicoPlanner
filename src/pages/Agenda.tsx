@@ -68,24 +68,61 @@ const toMinutes = (time: string) => {
   return hours * 60 + minutes;
 };
 
-const buildHourSlots = (scheduleMap: Record<number, SchedulePreference>) => {
+const buildHourSlots = (
+  scheduleMap: Record<number, SchedulePreference>,
+  weekSessions: Session[]
+) => {
   const activeDays = Object.values(scheduleMap).filter(
     (day) => day.isActive && day.startTime && day.endTime
   );
 
-  if (activeDays.length === 0) {
+  const configuredMinStartHour =
+    activeDays.length > 0
+      ? Math.min(...activeDays.map((day) => Number(day.startTime!.slice(0, 2))))
+      : null;
+
+  const configuredMaxEndHour =
+    activeDays.length > 0
+      ? Math.max(...activeDays.map((day) => Number(day.endTime!.slice(0, 2))))
+      : null;
+
+  const sessionsWithValidTime = weekSessions.filter((session) => /^\d{2}:\d{2}/.test(session.startTime));
+
+  const earliestSessionHour =
+    sessionsWithValidTime.length > 0
+      ? Math.min(...sessionsWithValidTime.map((session) => Number(session.startTime.slice(0, 2))))
+      : null;
+
+  const latestSessionHour =
+    sessionsWithValidTime.length > 0
+      ? Math.max(...sessionsWithValidTime.map((session) => Number(session.startTime.slice(0, 2))))
+      : null;
+
+  if (
+    configuredMinStartHour === null &&
+    configuredMaxEndHour === null &&
+    earliestSessionHour === null &&
+    latestSessionHour === null
+  ) {
     return Array.from({ length: 12 }, (_, i) => `${(i + 7).toString().padStart(2, '0')}:00`);
   }
 
   const minStartHour = Math.min(
-    ...activeDays.map((day) => Number(day.startTime!.slice(0, 2)))
-  );
-  const maxEndHour = Math.max(
-    ...activeDays.map((day) => Number(day.endTime!.slice(0, 2)))
+    configuredMinStartHour ?? Number.POSITIVE_INFINITY,
+    earliestSessionHour ?? Number.POSITIVE_INFINITY,
+    7
   );
 
-  const totalHours = Math.max(1, maxEndHour - minStartHour);
-  return Array.from({ length: totalHours }, (_, i) => `${String(minStartHour + i).padStart(2, '0')}:00`);
+  const maxDisplayHour = Math.max(
+    configuredMaxEndHour ?? Number.NEGATIVE_INFINITY,
+    latestSessionHour ?? Number.NEGATIVE_INFINITY
+  );
+
+  const safeMinHour = Number.isFinite(minStartHour) ? minStartHour : 7;
+  const safeMaxHour = Number.isFinite(maxDisplayHour) ? maxDisplayHour : safeMinHour;
+
+  const totalHours = Math.max(1, safeMaxHour - safeMinHour + 1);
+  return Array.from({ length: totalHours }, (_, i) => `${String(safeMinHour + i).padStart(2, '0')}:00`);
 };
 
 const isWithinDayAvailability = (
@@ -150,7 +187,17 @@ export default function Agenda() {
   });
   const [loading, setLoading] = useState(true);
   const weekDates = getWeekDates(currentDate);
-  const hours = useMemo(() => buildHourSlots(scheduleMap), [scheduleMap]);
+  const weekDateSet = useMemo(
+    () => new Set(weekDates.map((date) => toISODateInBrazil(date))),
+    [weekDates]
+  );
+
+  const weekSessions = useMemo(
+    () => sessions.filter((session) => weekDateSet.has(session.date)),
+    [sessions, weekDateSet]
+  );
+
+  const hours = useMemo(() => buildHourSlots(scheduleMap, weekSessions), [scheduleMap, weekSessions]);
 
   useEffect(() => {
     const loadAgendaData = async () => {
